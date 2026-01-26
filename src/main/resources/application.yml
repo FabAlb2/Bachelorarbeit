@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: Bachelorarbeit
+
+  datasource:
+    url: jdbc:postgresql://db:5432/bachelor
+    username: bachelor
+    password: bachelor
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+routing:
+  osrm:
+    base-url: http://osrm-routing:5000
+
+server:
+  port: 8080

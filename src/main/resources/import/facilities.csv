@@ -1,0 +1,5 @@
+name,type,latitude,longitude,wheelchairAccessible
+Apotheke am Markt,APOTHEKE,51.5072,7.1023,true
+Hausarztpraxis Müller,ARZTPRAXIS,51.5058,7.0964,false
+Pflegezentrum Nord,PFLEGEEINRICHTUNG,51.5201,7.1152,true
+hallo, APOTHEKE, 51.5093,7.1456,false
