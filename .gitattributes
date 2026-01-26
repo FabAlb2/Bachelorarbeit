@@ -1,0 +1,8 @@
+/mvnw text eol=lf
+*.cmd text eol=crlf
+*.pbf filter=lfs diff=lfs merge=lfs -text
+*.osrm filter=lfs diff=lfs merge=lfs -text
+*.cell_metrics filter=lfs diff=lfs merge=lfs -text
+*.mldgr filter=lfs diff=lfs merge=lfs -text
+*.osrm.* filter=lfs diff=lfs merge=lfs -text
+routing/data/*.osrm* filter=lfs diff=lfs merge=lfs -text
