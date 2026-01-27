@@ -1,10 +1,11 @@
 package com.whs.bachelorarbeit.service;
 
-
 import com.whs.bachelorarbeit.dto.FacilityDTO;
 import com.whs.bachelorarbeit.entity.Facility;
 import com.whs.bachelorarbeit.repository.FacilityRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
 
@@ -24,30 +25,24 @@ public class FacilityService {
                 .toList();
     }
 
-
     public FacilityDTO getById(Long id) {
         Facility facility = facilityRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Facility nicht gefunden"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Facility nicht gefunden: " + id));
         return toDto(facility);
     }
-
 
     private FacilityDTO toDto(Facility f) {
         return new FacilityDTO(
                 f.getId(),
-                f.getExternalId(),
-                f.getName(),
-                f.getPracticeName(),
+                f.getFacilityName(),
                 f.getType(),
+                f.getStreet(),
+                f.getPostalCode(),
+                f.getCity(),
+                f.getPhone(),
                 f.getLatitude(),
                 f.getLongitude(),
                 f.getWheelchairAccessible()
         );
     }
-
-
-
-
-
-
 }

@@ -51,7 +51,7 @@ function getFilteredFacilities() {
   return facilities.filter(f => {
     const matchesText =
       !q ||
-      normalize(f.name).includes(q) ||
+      normalize(f.facilityName).includes(q) ||
       normalize(f.type).includes(q);
 
     const matchesAcc =
@@ -78,17 +78,27 @@ function render() {
     if (f.latitude != null && f.longitude != null) {
       L.marker([f.latitude, f.longitude])
         .addTo(markersLayer)
-        .bindPopup(`<b>${f.name}</b><br>${f.type ?? ""}`);
+        .bindPopup(`<b>${f.facilityName}</b><br>${f.type ?? ""}`);
     }
 
     /* Liste */
-    const card = document.createElement("div");
+    const card = document.createElement("li");
     card.className = "card";
+    const title = f.facilityName ?? "Ohne Name";
+    const addrParts = [f.street, [f.postalCode, f.city].filter(Boolean).join(" ")].filter(Boolean);
+    const address = addrParts.join(", ");
+    const phone = (f.phone ?? "").trim();
 
     card.innerHTML = `
-      <div class="card-title">${f.name ?? "Ohne Name"}</div>
-      <div>${f.type ?? ""}</div>
-      <div>${isTrue(f.wheelchairAccessible) ? "♿ barrierefrei" : ""}</div>
+      <div class="card-title">${title}</div>
+
+      <div class="card-row">🏷️ <span>${f.type ?? ""}</span></div>
+
+      ${address ? `<div class="card-row">📍 <span>${address}</span></div>` : ""}
+
+      ${phone ? `<div class="card-row">📞 <a href="tel:${phone.replace(/\s+/g, "")}">${phone}</a></div>` : ""}
+
+      ${isTrue(f.wheelchairAccessible) ? `<div class="badge">♿ barrierefrei</div>` : ""}
     `;
 
     card.onclick = () => {

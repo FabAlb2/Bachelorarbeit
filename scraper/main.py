@@ -6,7 +6,6 @@ from typing import Any, Dict, Iterable, Optional, Tuple, List
 import requests
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.extras import execute_values
 
 # ============================================================
 # 1) Konfiguration: DB-Zugangsdaten über ENV (Docker-friendly)
@@ -201,10 +200,11 @@ RETURNING id;
 
 DELETE_DOCTORS_FOR_FACILITY = "DELETE FROM doctors WHERE facility_id = %s;"
 
-INSERT_DOCTORS_BULK = """
+INSERT_DOCTORS = """
 INSERT INTO doctors (facility_id, source, source_key, first_name, last_name, name, specialty)
-VALUES %s;
+VALUES (%s, %s, %s, %s, %s, %s, %s);
 """
+
 
 
 # ============================================================
@@ -316,7 +316,7 @@ def main():
                     )
 
                 if rows:
-                    execute_values(cur, INSERT_DOCTORS_BULK, rows)
+                    cur.executemany(INSERT_DOCTORS, rows)
                     doctors_written += len(rows)
 
             conn.commit()

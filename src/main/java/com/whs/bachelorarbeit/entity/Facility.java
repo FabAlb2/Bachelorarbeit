@@ -9,12 +9,13 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 
-
 @Entity
 @Table(
         name = "facilities",
         uniqueConstraints = @UniqueConstraint(columnNames = {"source", "source_key"})
 )
+
+
 public class Facility {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
