@@ -1,16 +1,30 @@
 package com.whs.bachelorarbeit.dto;
 
+
 import com.whs.bachelorarbeit.entity.FacilityType;
 
-public record FacilityDTO(
-        Long id,
+
+public record DoctorListItemDTO(
+
+        Long doctorID,
+        String name,
+        String specialtity,
+
+        Long facilityId,
         String facilityName,
-        FacilityType type,
+        FacilityType facilityType,
+
         String street,
         String postalCode,
         String city,
         String phone,
+
         Double latitude,
         Double longitude,
         Boolean wheelchairAccessible
-) {}
+
+) {
+
+
+
+}

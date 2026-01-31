@@ -27,7 +27,8 @@ public class FacilityController {
 
     // GET /api/facilities/{id}
     @GetMapping("/{id}")
-    public FacilityDTO getById(@PathVariable Long id) {
+    public FacilityDTO
+    getById(@PathVariable Long id) {
         return facilityService.getById(id);
     }
 

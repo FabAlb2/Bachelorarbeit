@@ -5,6 +5,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -24,18 +27,19 @@ public class Facility {
     @Column(nullable = false)
     private String source; // "kvwl"
 
-    @Column(name = "source_key", nullable = false)
+    @Column(nullable = false)
     private String sourceKey; // hash aus Adresse
 
-    @Column(name = "facility_name", nullable = false)
+    @Column(nullable = false)
     private String facilityName;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String type; // z.B. ARZTPRAXIS
+    private FacilityType type; // z.B. ARZTPRAXIS
 
     private String street;
 
-    @Column(name = "postal_code")
+
     private String postalCode;
 
     private String city;
@@ -43,6 +47,11 @@ public class Facility {
     private Double latitude;
     private Double longitude;
 
-    @Column(name = "wheelchair_accessible")
+
     private Boolean wheelchairAccessible;
+
+    @OneToMany(mappedBy = "facility", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Doctor> doctors = new ArrayList<>();
+
+
 }

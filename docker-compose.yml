@@ -23,13 +23,7 @@ services:
       osrm:
         condition: service_started
 
-    # ✅ healthcheck ohne actuator: prüft, ob dein API-Endpoint antwortet
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/facilities >/dev/null 2>&1"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 25s
+
 
   db:
     image: postgres:16
@@ -74,7 +68,7 @@ services:
       db:
         condition: service_healthy
       backend:
-        condition: service_healthy
+        condition: service_started
 
     restart: "no"
 

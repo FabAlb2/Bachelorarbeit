@@ -179,6 +179,7 @@ def compute_facility_source_key(street: str, postal: str, city: str, lat: Option
 # ============================================================
 # 6) SQL: Facility upsert + Doctors replace
 # ============================================================
+
 UPSERT_FACILITY_RETURN_ID = """
 INSERT INTO facilities
   (source, source_key, facility_name, type, street, postal_code, city, phone, latitude, longitude, wheelchair_accessible)
