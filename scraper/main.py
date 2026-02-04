@@ -2,6 +2,7 @@ import os
 import time
 import hashlib
 from typing import Any, Dict, Iterable, Optional, Tuple, List
+from sources.gelsenkirchen_gesundheitskarte import persist_gelsenkirchen_gesundheitskarte
 
 import requests
 import psycopg
@@ -55,7 +56,18 @@ def kvwl_get_doctor(doc_id: str) -> Dict[str, Any]:
     r.raise_for_status()
     return r.json()
 
+# Funktion von gelsenkirchen_gesundheitskarte.py
+def run_html_sources(conn) -> None:
+    
+    print("[scraper] 🌐 Starte HTML-Quellen...")
+    persist_gelsenkirchen_gesundheitskarte(conn)
+    # Weitere Quellen können hinzugefügt werden
 
+    print("[scraper] 🌐 HTML-Quellen abgeschlossen.")
+    
+    
+    
+    
 # ============================================================
 # 3) DB-Startup-Helper: warten bis Postgres erreichbar ist
 # In Docker starten Container parallel. Postgres braucht meist
@@ -81,6 +93,8 @@ def wait_for_db(max_tries: int = 30, sleep_s: float = 1.0) -> None:
             print(f"[scraper] waiting for DB ({i+1}/{max_tries})... {e}")
             time.sleep(sleep_s)
     raise RuntimeError("DB did not become ready in time.")
+
+
 
 
 # ============================================================
@@ -130,35 +144,39 @@ def iter_doctor_ids(lat: float, lon: float, page_size: int = 20) -> Iterable[str
         time.sleep(0.2) # kleine Pause für KVWL Seite
 
 
+
+
 # ============================================================
 # 5) Mapping Helper
 # Die KVWL-JSON-Struktur ist nicht überall konsistent (z.B. None,
 # leere Strings, verschachtelte Objekte). Diese Helfer normalisieren
 # Werte und ziehen die wichtigsten Felder aus den Detaildaten.
 # ============================================================
+
+
+# Konvertiert in string und trimmt; None ->
 def safe_str(v: Any) -> str:
-    """Konvertiert in string und trimmt; None -> ''"""
     return str(v).strip() if v is not None else ""
 
 
+# Stabile Hash-Funktion für Keys, damit keine ewig langen Keys gespeichert werden müssen.
 def sha1(text: str) -> str:
-    """Stabile Hash-Funktion für Keys, damit keine ewig langen Keys gespeichert werden müssen."""
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
+# Praxis-/Standort-Name (falls vorhanden), sonst Fallback.
 def pick_practice_name(detail: Dict[str, Any]) -> str:
-    """Praxis-/Standort-Name (falls vorhanden), sonst Fallback."""
     practice = detail.get("Practice") or {}
     return safe_str(practice.get("practiceName")) or "Unbekannte Praxis"
 
 
+# Facility-Typ: aktuell hardcoded, weil ich erstmal kein Enum wollte.
 def pick_type_for_facility(detail: Dict[str, Any]) -> str:
-    """Facility-Typ: aktuell hardcoded, weil ich erstmal kein Enum wollte."""
     return "ARZTPRAXIS"
 
 
+# Fachgebiet: nimmt aktuell das erste ExpertiseArea-Element (wenn vorhanden).
 def pick_specialty(detail: Dict[str, Any]) -> Optional[str]:
-    """Fachgebiet: nimmt aktuell das erste ExpertiseArea-Element (wenn vorhanden)."""
     expertise = (detail.get("ExpertiseAreas") or {}).get("ExpertiseArea") or []
     if expertise:
         name = expertise[0].get("name")
@@ -167,24 +185,24 @@ def pick_specialty(detail: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# Display-Name für Ärzte: Vorname + Nachname als Fallback-Logik.
 def pick_doctor_name(detail: Dict[str, Any]) -> str:
-    """Display-Name für Ärzte: Vorname + Nachname als Fallback-Logik."""
     first = safe_str(detail.get("FirstName"))
     last = safe_str(detail.get("LastName"))
     full = f"{first} {last}".strip()
     return full or "Unbekannt"
 
 
+# Barrierefreiheit: sehr grob. Wenn KVWL Attributes liefert -> True, sonst None.
 def pick_wheelchair(detail: Dict[str, Any]) -> Optional[bool]:
-    """Barrierefreiheit: sehr grob. Wenn KVWL Attributes liefert -> True, sonst None."""
     attrs = (detail.get("BarrierFreeAttributes") or {}).get("BarrierFreeAttribute") or []
     if not attrs:
         return None
     return True
 
 
+# Extrahiert Koordinaten und Adresse aus dem Detailobjekt.
 def extract_location(detail: Dict[str, Any]) -> Tuple[Optional[float], Optional[float], str, str, str]:
-    """Extrahiert Koordinaten und Adresse aus dem Detailobjekt."""
     loc = detail.get("Location") or {}
     coords = loc.get("Coordinates") or {}
     lat = coords.get("Latitude")
@@ -195,22 +213,19 @@ def extract_location(detail: Dict[str, Any]) -> Tuple[Optional[float], Optional[
     return lat, lon, street, postal, city
 
 
+# Telefonnummer aus dem Detailobjekt.
 def pick_phone(detail: Dict[str, Any]) -> str:
-    """Telefonnummer aus dem Detailobjekt."""
     return safe_str(detail.get("Phone"))
 
 
+# Berechnet einen stabilen Key für eine Facility (= Standort/Praxis).
+# Idee:
+# - Best case: Adresse ist vorhanden -> source|street|postal|city
+#     Dadurch werden mehrere Ärzte derselben Praxis (gleiche Adresse) zusammengeführt.
+# - Fallback: falls Adresse fehlt -> source|lat|lon
+# 
+# Der Rückgabewert ist ein SHA1-Hash, damit wir immer ein fixes, kurzes Key-Format haben.
 def compute_facility_source_key(street: str, postal: str, city: str, lat: Optional[float], lon: Optional[float]) -> str:
-    """
-    Berechnet einen stabilen Key für eine Facility (= Standort/Praxis).
-
-    Idee:
-    - Best case: Adresse ist vorhanden -> source|street|postal|city
-      Dadurch werden mehrere Ärzte derselben Praxis (gleiche Adresse) zusammengeführt.
-    - Fallback: falls Adresse fehlt -> source|lat|lon
-
-    Der Rückgabewert ist ein SHA1-Hash, damit wir immer ein fixes, kurzes Key-Format haben.
-    """
     if street and postal and city:
         raw = f"{SOURCE}|{street}|{postal}|{city}".lower()
     else:
@@ -269,6 +284,7 @@ def main():
     # Basis-Koordinaten (deine 45881 Suche)
     base_lat = 51.5285024259591
     base_lon = 7.07863180952606
+
 
     # 1) Scrape: Wir sammeln alle Arzt-Details, gruppieren nach Facility (Adresse)
     facilities: Dict[str, Dict[str, Any]] = {}
@@ -377,9 +393,22 @@ def main():
 
             # 2.3 Transaktion abschließen
             conn.commit()
+            
+            print("[scraper] ✅ KVWL fertig – starte HTML-Quellen...")
+            try:
+                run_html_sources(conn)  # nutzt dieselbe Connection
+                conn.commit()           # commit für HTML-Daten
+            except Exception as e:
+                print(f"[scraper] ❌ HTML-Quellen Fehler: {e}")
 
-    print(f"[scraper] ✅ Facilities upserted: {facilities_written}")
-    print(f"[scraper] ✅ Doctors inserted: {doctors_written}")
+        # jetzt sind wir außerhalb der Connection → alles fertig
+        print(f"[scraper] ✅ Facilities upserted: {facilities_written}")
+        print(f"[scraper] ✅ Doctors inserted: {doctors_written}")
+        print("[scraper] ✅ Alles fertig.")
+            
+            
+
+
 
 
 if __name__ == "__main__":
