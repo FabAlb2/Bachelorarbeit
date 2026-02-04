@@ -8,7 +8,9 @@ import psycopg
 from psycopg.rows import dict_row
 
 # ============================================================
-# 1) Konfiguration: DB-Zugangsdaten über ENV (Docker-friendly)
+# 1) Konfiguration: DB-Zugangsdaten über ENV (Docker-friendly).
+# In Docker (docker-compose) werden diese Werte typischerweise
+# als Environment-Variablen gesetzt.
 # ============================================================
 DB_HOST = os.getenv("DB_HOST", "db")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
@@ -16,10 +18,19 @@ DB_NAME = os.getenv("DB_NAME", "bachelor")
 DB_USER = os.getenv("DB_USER", "bachelor")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "bachelor")
 
+
+# Datenquelle-Label (für Multi-Scraper später)
 SOURCE = "kvwl"
+
 
 # ============================================================
 # 2) KVWL HTTP Calls: Search und Detail
+# KVWL bietet (zumindest für diese Seite) JSON-Endpunkte:
+# - searchDocs: liefert eine Liste von "Abstracts" mit Arzt-Ids (paginierbar)
+# - getDoctor: liefert Detailinformationen für eine Arzt-Id
+#
+# HEADERS: Damit Requests nicht sofort blockiert werden, setzen
+# wir u.a. Content-Type und einen User-Agent.
 # ============================================================
 SEARCH_URL = "https://www.kvwl.de/DocSearchService/DocSearchService/searchDocs"
 DETAIL_URL = "https://www.kvwl.de/DocSearchService/DocSearchService/getDoctor"
@@ -32,12 +43,14 @@ HEADERS = {
 
 
 def kvwl_search(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Führt einen KVWL-Such-Request aus und gibt das JSON zurück."""
     r = requests.post(SEARCH_URL, json=payload, headers=HEADERS, timeout=30)
     r.raise_for_status()
     return r.json()
 
 
 def kvwl_get_doctor(doc_id: str) -> Dict[str, Any]:
+    """Lädt KVWL-Detaildaten für eine Arzt-Id (Id Feld muss 'Id' heißen)."""
     r = requests.post(DETAIL_URL, json={"Id": doc_id}, headers=HEADERS, timeout=30)
     r.raise_for_status()
     return r.json()
@@ -45,8 +58,12 @@ def kvwl_get_doctor(doc_id: str) -> Dict[str, Any]:
 
 # ============================================================
 # 3) DB-Startup-Helper: warten bis Postgres erreichbar ist
+# In Docker starten Container parallel. Postgres braucht meist
+# ein paar Sekunden, bis er "ready" ist. Damit der Scraper nicht
+# mit Connection-Errors abbricht, warten wir aktiv mit Retries.
 # ============================================================
 def wait_for_db(max_tries: int = 30, sleep_s: float = 1.0) -> None:
+    """Blockiert bis Postgres erreichbar ist oder wir nach max_tries abbrechen."""
     for i in range(max_tries):
         try:
             with psycopg.connect(
@@ -68,8 +85,12 @@ def wait_for_db(max_tries: int = 30, sleep_s: float = 1.0) -> None:
 
 # ============================================================
 # 4) Iterator: alle Arzt-Ids paginiert einsammeln
+# KVWL liefert Suchergebnisse in Seiten (PageId, PageSize).
+# Wir laufen so lange, bis eine Seite weniger Elemente als
+# page_size enthält (oder gar keine), dann sind wir am Ende.
 # ============================================================
 def iter_doctor_ids(lat: float, lon: float, page_size: int = 20) -> Iterable[str]:
+    """Yieldet KVWL-Arzt-Ids für eine Basis-Position (lat/lon), Seite für Seite."""
     page_id = 0
 
     while True:
@@ -78,6 +99,7 @@ def iter_doctor_ids(lat: float, lon: float, page_size: int = 20) -> Iterable[str
             "PageSize": page_size,
             "Latitude": lat,
             "Longitude": lon,
+            # weitere Filter bleiben erstmal leer, damit wir möglichst viele Treffer erhalten
             "ExpertiseAreaStructureId": "",
             "DocNamePattern": "",
             "ApplicableQualificationId": "",
@@ -88,6 +110,9 @@ def iter_doctor_ids(lat: float, lon: float, page_size: int = 20) -> Iterable[str
         }
 
         data = kvwl_search(payload)
+        
+        # KVWL packt das Array an etwas verschachtelter Stelle:
+        # data["DoctorAbstracts"]["DoctorAbstract"] -> list
         abstracts = (((data.get("DoctorAbstracts") or {}).get("DoctorAbstract")) or [])
         if not abstracts:
             return
@@ -97,35 +122,43 @@ def iter_doctor_ids(lat: float, lon: float, page_size: int = 20) -> Iterable[str
             if doc_id:
                 yield str(doc_id)
 
+        # Wenn weniger als page_size -> letzte Seite erreicht
         if len(abstracts) < page_size:
             return
 
         page_id += 1
-        time.sleep(0.2)
+        time.sleep(0.2) # kleine Pause für KVWL Seite
 
 
 # ============================================================
 # 5) Mapping Helper
+# Die KVWL-JSON-Struktur ist nicht überall konsistent (z.B. None,
+# leere Strings, verschachtelte Objekte). Diese Helfer normalisieren
+# Werte und ziehen die wichtigsten Felder aus den Detaildaten.
 # ============================================================
 def safe_str(v: Any) -> str:
+    """Konvertiert in string und trimmt; None -> ''"""
     return str(v).strip() if v is not None else ""
 
 
 def sha1(text: str) -> str:
+    """Stabile Hash-Funktion für Keys, damit keine ewig langen Keys gespeichert werden müssen."""
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
 def pick_practice_name(detail: Dict[str, Any]) -> str:
+    """Praxis-/Standort-Name (falls vorhanden), sonst Fallback."""
     practice = detail.get("Practice") or {}
     return safe_str(practice.get("practiceName")) or "Unbekannte Praxis"
 
 
 def pick_type_for_facility(detail: Dict[str, Any]) -> str:
-    # Du wolltest erstmal kein Enum. Für Facility nehmen wir einfach ARZTPRAXIS.
+    """Facility-Typ: aktuell hardcoded, weil ich erstmal kein Enum wollte."""
     return "ARZTPRAXIS"
 
 
 def pick_specialty(detail: Dict[str, Any]) -> Optional[str]:
+    """Fachgebiet: nimmt aktuell das erste ExpertiseArea-Element (wenn vorhanden)."""
     expertise = (detail.get("ExpertiseAreas") or {}).get("ExpertiseArea") or []
     if expertise:
         name = expertise[0].get("name")
@@ -135,6 +168,7 @@ def pick_specialty(detail: Dict[str, Any]) -> Optional[str]:
 
 
 def pick_doctor_name(detail: Dict[str, Any]) -> str:
+    """Display-Name für Ärzte: Vorname + Nachname als Fallback-Logik."""
     first = safe_str(detail.get("FirstName"))
     last = safe_str(detail.get("LastName"))
     full = f"{first} {last}".strip()
@@ -142,6 +176,7 @@ def pick_doctor_name(detail: Dict[str, Any]) -> str:
 
 
 def pick_wheelchair(detail: Dict[str, Any]) -> Optional[bool]:
+    """Barrierefreiheit: sehr grob. Wenn KVWL Attributes liefert -> True, sonst None."""
     attrs = (detail.get("BarrierFreeAttributes") or {}).get("BarrierFreeAttribute") or []
     if not attrs:
         return None
@@ -149,6 +184,7 @@ def pick_wheelchair(detail: Dict[str, Any]) -> Optional[bool]:
 
 
 def extract_location(detail: Dict[str, Any]) -> Tuple[Optional[float], Optional[float], str, str, str]:
+    """Extrahiert Koordinaten und Adresse aus dem Detailobjekt."""
     loc = detail.get("Location") or {}
     coords = loc.get("Coordinates") or {}
     lat = coords.get("Latitude")
@@ -160,14 +196,20 @@ def extract_location(detail: Dict[str, Any]) -> Tuple[Optional[float], Optional[
 
 
 def pick_phone(detail: Dict[str, Any]) -> str:
+    """Telefonnummer aus dem Detailobjekt."""
     return safe_str(detail.get("Phone"))
 
 
 def compute_facility_source_key(street: str, postal: str, city: str, lat: Optional[float], lon: Optional[float]) -> str:
     """
-    Facility = Standort/Praxis.
-    Best case: Adresse ist vorhanden (bei dir ja: Street/PostalCode/City).
-    Fallback: falls Adresse fehlt -> lat/lon.
+    Berechnet einen stabilen Key für eine Facility (= Standort/Praxis).
+
+    Idee:
+    - Best case: Adresse ist vorhanden -> source|street|postal|city
+      Dadurch werden mehrere Ärzte derselben Praxis (gleiche Adresse) zusammengeführt.
+    - Fallback: falls Adresse fehlt -> source|lat|lon
+
+    Der Rückgabewert ist ein SHA1-Hash, damit wir immer ein fixes, kurzes Key-Format haben.
     """
     if street and postal and city:
         raw = f"{SOURCE}|{street}|{postal}|{city}".lower()
@@ -178,6 +220,16 @@ def compute_facility_source_key(street: str, postal: str, city: str, lat: Option
 
 # ============================================================
 # 6) SQL: Facility upsert + Doctors replace
+# - UPSERT_FACILITY_RETURN_ID:
+#   Schreibt facility, wenn (source, source_key) noch nicht existiert,
+#   sonst Update und RETURNING id, damit wir sofort den PK haben.
+#
+# - DELETE_DOCTORS_FOR_FACILITY:
+#   Wir ersetzen die Doctors pro Facility immer komplett.
+#   Das ist simpel und robust, solange die Datenmenge klein/mittel ist.
+#
+# - INSERT_DOCTORS:
+#   Bulk Insert per executemany()
 # ============================================================
 
 UPSERT_FACILITY_RETURN_ID = """
@@ -224,10 +276,11 @@ def main():
     for doc_id in iter_doctor_ids(base_lat, base_lon, page_size=20):
         detail = kvwl_get_doctor(doc_id)
 
-        # Facility-Daten (Standort)
+        # Facility-Daten (Standort) extrahieren und einen stabilen Key berechnen
         lat, lon, street, postal, city = extract_location(detail)
         facility_key = compute_facility_source_key(street, postal, city, lat, lon)
 
+        # 1.2 Facility neu anlegen, falls noch nicht vorhanden
         if facility_key not in facilities:
             facilities[facility_key] = {
                 "source": SOURCE,
@@ -245,13 +298,14 @@ def main():
                 "doctors": {},
             }
 
-        # Doctor-Daten (Arzt)
+        # Doctor-Daten (Arzt) extrahieren
         doctor_id = safe_str(detail.get("Id") or doc_id)  # KVWL Arzt-ID
         first = safe_str(detail.get("FirstName"))
         last = safe_str(detail.get("LastName"))
         name = pick_doctor_name(detail)
         specialty = pick_specialty(detail)
 
+        # In die Facility-Gruppe schreiben (KVWL-Id ist pro Arzt eindeutig)
         facilities[facility_key]["doctors"][doctor_id] = {
             "source": SOURCE,
             "source_key": doctor_id,   # Arzt ID als source_key in doctors
@@ -266,6 +320,7 @@ def main():
     print(f"[scraper] Facilities gruppiert: {len(facilities)}")
 
     # 2) Persist: Facility upsert + Doctors replace (delete + bulk insert)
+    # row_factory=dict_row sorgt dafür, dass fetchone() dicts liefert (cur.fetchone()["id"])
     with psycopg.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -299,7 +354,7 @@ def main():
                 facility_id = cur.fetchone()["id"]
                 facilities_written += 1
 
-                # 2.2 Doctors dieser Facility ersetzen
+                # 2.2 Doctors dieser Facility ersetzen (löschen und neu einfügen)
                 cur.execute(DELETE_DOCTORS_FOR_FACILITY, (facility_id,))
 
                 rows = []
@@ -320,6 +375,7 @@ def main():
                     cur.executemany(INSERT_DOCTORS, rows)
                     doctors_written += len(rows)
 
+            # 2.3 Transaktion abschließen
             conn.commit()
 
     print(f"[scraper] ✅ Facilities upserted: {facilities_written}")

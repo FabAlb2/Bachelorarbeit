@@ -17,9 +17,11 @@ public class DoctorService {
         this.doctorRepository = doctorRepository;
     }
 
+
     public List<DoctorListItemDTO> getAll() {
         return doctorRepository.findAllListItems();
     }
+
 
     public DoctorListItemDTO getById(long id) {
         return doctorRepository.findListItemById(id)

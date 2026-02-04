@@ -17,21 +17,21 @@ public interface DoctorRepository extends JpaRepository<Doctor, Long> {
                     d.specialty,
                 
                     f.id,
-                      f.facilityName,
-                      f.type,
+                    f.facilityName,
+                    f.type,
 
-                     f.street,
-                     f.postalCode,
-                     f.city,
-                     f.phone,
+                    f.street,
+                    f.postalCode,
+                    f.city,
+                    f.phone,
 
-                     f.latitude,
-                     f.longitude,
-                     f.wheelchairAccessible
-                    )
-                    from Doctor d
-                    join d.facility f
-                    order by d.lastName asc, d.firstName asc, d.name asc
+                    f.latitude,
+                    f.longitude,
+                    f.wheelchairAccessible
+                   )
+                   from Doctor d
+                   join d.facility f
+                   order by d.lastName asc, d.firstName asc, d.name asc
                 
                 """)
         List<DoctorListItemDTO> findAllListItems();

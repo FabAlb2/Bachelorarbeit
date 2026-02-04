@@ -6,9 +6,9 @@ import com.whs.bachelorarbeit.entity.FacilityType;
 
 public record DoctorListItemDTO(
 
-        Long doctorID,
+        Long doctorId,
         String name,
-        String specialtity,
+        String specialty,
 
         Long facilityId,
         String facilityName,
