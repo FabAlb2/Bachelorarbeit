@@ -1,8 +1,10 @@
 import os
 import time
 import hashlib
+import random
 from typing import Any, Dict, Iterable, Optional, Tuple, List
 from sources.gelsenkirchen_gesundheitskarte import persist_gelsenkirchen_gesundheitskarte
+from sources.aponet_apothekensuche import persist_aponet_apotheken_gelsenkirchen
 
 import requests
 import psycopg
@@ -45,14 +47,18 @@ HEADERS = {
 
 def kvwl_search(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Führt einen KVWL-Such-Request aus und gibt das JSON zurück."""
+    print(f"[kvwl] search page={payload.get('PageId')} lat={payload.get('Latitude')} lon={payload.get('Longitude')}")
     r = requests.post(SEARCH_URL, json=payload, headers=HEADERS, timeout=30)
+    print(f"[kvwl] search status={r.status_code} len={len(r.text or '')}")
     r.raise_for_status()
     return r.json()
 
 
 def kvwl_get_doctor(doc_id: str) -> Dict[str, Any]:
     """Lädt KVWL-Detaildaten für eine Arzt-Id (Id Feld muss 'Id' heißen)."""
+    print(f"[kvwl] getDoctor id={doc_id}")
     r = requests.post(DETAIL_URL, json={"Id": doc_id}, headers=HEADERS, timeout=30)
+    print(f"[kvwl] getDoctor status={r.status_code} len={len(r.text or '')}")
     r.raise_for_status()
     return r.json()
 
@@ -65,6 +71,11 @@ def run_html_sources(conn) -> None:
 
     print("[scraper] 🌐 HTML-Quellen abgeschlossen.")
     
+    
+    
+    print("[scraper] 🌐 Starte HTML-Gesundheitskarte-Quelle...")
+    persist_aponet_apotheken_gelsenkirchen(conn)
+    print("[scraper] 🌐 HTML-Gesundheitskarte-Quelle abgeschlossen.")
     
     
     
@@ -233,6 +244,24 @@ def compute_facility_source_key(street: str, postal: str, city: str, lat: Option
     return sha1(raw)
 
 
+
+
+
+def is_in_gelsenkirchen(city: str, postal: str) -> bool:
+    c = city.lower()
+    p = postal.strip()
+
+    if "gelsenkirchen" in c:
+        return True
+
+    # typische Gelsenkirchen-PLZ
+    if p.startswith("458"):
+        return True
+
+    return False
+
+
+
 # ============================================================
 # 6) SQL: Facility upsert + Doctors replace
 # - UPSERT_FACILITY_RETURN_ID:
@@ -249,9 +278,10 @@ def compute_facility_source_key(street: str, postal: str, city: str, lat: Option
 
 UPSERT_FACILITY_RETURN_ID = """
 INSERT INTO facilities
-  (source, source_key, facility_name, type, street, postal_code, city, phone, latitude, longitude, wheelchair_accessible)
+  (source, source_key, facility_name, type, street, postal_code, city, phone, 
+  latitude, longitude, wheelchair_accessible, last_seen_at)
 VALUES
-  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
 ON CONFLICT (source, source_key)
 DO UPDATE SET
   facility_name = EXCLUDED.facility_name,
@@ -262,7 +292,8 @@ DO UPDATE SET
   phone = EXCLUDED.phone,
   latitude = EXCLUDED.latitude,
   longitude = EXCLUDED.longitude,
-  wheelchair_accessible = EXCLUDED.wheelchair_accessible
+  wheelchair_accessible = EXCLUDED.wheelchair_accessible,
+  last_seen_at = NOW()
 RETURNING id;
 """
 
@@ -281,57 +312,76 @@ VALUES (%s, %s, %s, %s, %s, %s, %s);
 def main():
     wait_for_db()
 
-    # Basis-Koordinaten (deine 45881 Suche)
-    base_lat = 51.5285024259591
-    base_lon = 7.07863180952606
+    # mehrere Suchpunkte
+    search_points = [
+        (51.5285024259591, 7.07863180952606), # 45811
+        (51.5074086885497, 7.09422362114849), # 45879
+        (51.5154383889844, 7.05712246590032), # 45883
+        (51.4934186141858, 7.0845770890135),  # 45884
+        (51.4991346811294, 7.11864101982773), # 45886
+        (51.5179268800199, 7.11805545154942), # 45888
+        (51.5376570371888, 7.11022695447703), # 45889
+        (51.5593155331453, 7.08174970144914), # 45891
+        (51.5721755419602, 7.11157055160658), # 45892
+        (51.5826435374217, 7.05658911035039), # 45894
+        (51.6072345927372, 7.02851589356686), # 45896
+        (51.5605660236072, 7.04130812771978), # 45897
+        (51.5397718367201, 7.03043069983145), # 45899
+    ]
 
-
-    # 1) Scrape: Wir sammeln alle Arzt-Details, gruppieren nach Facility (Adresse)
     facilities: Dict[str, Dict[str, Any]] = {}
 
-    for doc_id in iter_doctor_ids(base_lat, base_lon, page_size=20):
-        detail = kvwl_get_doctor(doc_id)
+    # Optional: damit du nicht denselben Arzt 10x holst, wenn er in mehreren Suchen auftaucht
+    seen_doc_ids = set()
 
-        # Facility-Daten (Standort) extrahieren und einen stabilen Key berechnen
-        lat, lon, street, postal, city = extract_location(detail)
-        facility_key = compute_facility_source_key(street, postal, city, lat, lon)
+    for base_lat, base_lon in search_points:
+        print(f"[scraper] 🔎 Suche für Punkt lat={base_lat}, lon={base_lon}")
 
-        # 1.2 Facility neu anlegen, falls noch nicht vorhanden
-        if facility_key not in facilities:
-            facilities[facility_key] = {
+        for doc_id in iter_doctor_ids(base_lat, base_lon, page_size=20):
+            if doc_id in seen_doc_ids:
+                continue
+            seen_doc_ids.add(doc_id)
+
+            detail = kvwl_get_doctor(doc_id)
+
+            lat, lon, street, postal, city = extract_location(detail)
+            
+            if not is_in_gelsenkirchen(city, postal):
+                continue
+        
+        
+            facility_key = compute_facility_source_key(street, postal, city, lat, lon)
+
+            if facility_key not in facilities:
+                facilities[facility_key] = {
+                    "source": SOURCE,
+                    "source_key": facility_key,
+                    "facility_name": pick_practice_name(detail),
+                    "type": pick_type_for_facility(detail),
+                    "street": street,
+                    "postal_code": postal,
+                    "city": city,
+                    "phone": pick_phone(detail),
+                    "latitude": lat,
+                    "longitude": lon,
+                    "wheelchair_accessible": pick_wheelchair(detail),
+                    "doctors": {},
+                }
+
+            doctor_id = safe_str(detail.get("Id") or doc_id)
+            facilities[facility_key]["doctors"][doctor_id] = {
                 "source": SOURCE,
-                "source_key": facility_key,
-                "facility_name": pick_practice_name(detail),
-                "type": pick_type_for_facility(detail),
-                "street": street,
-                "postal_code": postal,
-                "city": city,
-                "phone": pick_phone(detail),
-                "latitude": lat,
-                "longitude": lon,
-                "wheelchair_accessible": pick_wheelchair(detail),
-                # doctors als dict, um doppelte IDs zu vermeiden
-                "doctors": {},
+                "source_key": doctor_id,
+                "first_name": safe_str(detail.get("FirstName")),
+                "last_name": safe_str(detail.get("LastName")),
+                "name": pick_doctor_name(detail),
+                "specialty": pick_specialty(detail),
             }
 
-        # Doctor-Daten (Arzt) extrahieren
-        doctor_id = safe_str(detail.get("Id") or doc_id)  # KVWL Arzt-ID
-        first = safe_str(detail.get("FirstName"))
-        last = safe_str(detail.get("LastName"))
-        name = pick_doctor_name(detail)
-        specialty = pick_specialty(detail)
+            time.sleep(random.uniform(0.6, 1.2))
 
-        # In die Facility-Gruppe schreiben (KVWL-Id ist pro Arzt eindeutig)
-        facilities[facility_key]["doctors"][doctor_id] = {
-            "source": SOURCE,
-            "source_key": doctor_id,   # Arzt ID als source_key in doctors
-            "first_name": first,
-            "last_name": last,
-            "name": name,
-            "specialty": specialty,
-        }
-
-        time.sleep(0.2)
+        # kleine Pause zwischen Basis-Suchen (optional)
+        time.sleep(0.8)
 
     print(f"[scraper] Facilities gruppiert: {len(facilities)}")
 
@@ -346,6 +396,17 @@ def main():
         row_factory=dict_row,
     ) as conn:
         with conn.cursor() as cur:
+            
+            cur.execute("""
+                        DELETE FROM facilities
+                        WHERE source = %s
+                            AND last_seen_at < NOW() - INTERVAL '7 days'
+                        """, (SOURCE,),
+                    )
+            deleted = cur.rowcount
+            conn.commit()
+            print(f"[scraper] 🧹 Alte Facilities gelöscht: {deleted}")
+            
             facilities_written = 0
             doctors_written = 0
 

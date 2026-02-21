@@ -8,7 +8,11 @@
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
   <link rel="stylesheet" href="style.css" />
+
+
 
 </head>
 <body>
@@ -19,16 +23,39 @@
     </header>
 
     <section class="controls">
-      
+
+      <div class="filter-section">
       <input id="suchfeld" class="search-input" placeholder="Nach Einrichtung suchen..." />
 
       <div class="checkbox">
-        <input type="checkbox" id="checkBarriere"/>
-        <label for="checkBarriere">Nur Barrierefrei</label>
+       <label>
+         <input type="checkbox" id="checkBarriere"/>
+         Nur Barrierefrei
+        </label>
       </div>
 
-      <button id="reloadBtn" type="button">Neu laden</button>
+
+  <!-- NEU: Facility-Typen -->
+      <div class="checkbox" id="facilityTypes">
+        <label><input type="checkbox" id="checkDoctors"/> Ärzte</label>
+        <label><input type="checkbox" class="facilityType" value="KRANKENHAUS"> Krankenhaus</label>
+        <label><input type="checkbox" class="facilityType" value="APOTHEKE"> Apotheke</label>
+        <label><input type="checkbox" class="facilityType" value="KURZZEITPFLEGEHEIM"> Kurzzeitpflegeheim</label>
+        <label><input type="checkbox" class="facilityType" value="AMBULANTER_PFLEGEDIENST"> Ambulanter Pflegedienst</label>
+        <label><input type="checkbox" class="facilityType" value="PFLEGEHEIM"> (Platzhalter)</label>
+      </div>
+      
+      <div class="route-controls">
+        <input id="routeStart" class="search-input" placeholder="Start (Adresse oder 'Mein Standort')" />
+        <input id="routeEnd" class="search-input" placeholder="Ziel (Adresse oder Einrichtung/Arzt)" />
+        <button id="routeBtn" type="button">Route berechnen</button>
+        <button id="routeClearBtn" type="button">Route löschen</button>
+
+        <div id="routeInfo" class="route-info" hidden></div>
+      </div>
+     </div>
     </section>
+
 
     <div id="loading" class="status" hidden>Lade Daten…</div>
     <div id="error" class="status error" hidden></div>
@@ -48,6 +75,7 @@
 
   <!-- Leaflet JS (muss nach dem map-div geladen werden) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Java Script Datei -->
   <script src="app.js"></script>

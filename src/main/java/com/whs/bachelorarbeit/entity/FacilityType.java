@@ -8,11 +8,11 @@ public enum FacilityType {
     KRANKENHAUS,
     SANITAETSHAUS,
     AMBULANTER_PFLEGEDIENST,
+    KURZZEITPFLEGEHEIM,
     STATIONAERE_PFLEGE,
     KURZZEITPFLEGE,
     THERAPIE,          // z.B. Physio/Ergo/Logo (optional)
     BERATUNGSSTELLE,   // optional
     SONSTIGES
-
 
 }

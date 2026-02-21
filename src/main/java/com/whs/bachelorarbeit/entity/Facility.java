@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,6 +50,9 @@ public class Facility {
 
 
     private Boolean wheelchairAccessible;
+
+    @Column(name = "last_seen_at", nullable = false, columnDefinition = "timestamp not null default now()")
+    private LocalDateTime lastSeenAt;
 
     @OneToMany(mappedBy = "facility", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Doctor> doctors = new ArrayList<>();

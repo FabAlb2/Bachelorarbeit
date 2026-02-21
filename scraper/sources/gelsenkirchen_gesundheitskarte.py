@@ -28,7 +28,6 @@ def _sha1(text: str) -> str:
 # Stabiler Key pro Einrichtung. Wichtig: Name + Adresse, damit sich mehrere
 # Einrichtungen am selben Ort nicht überschreiben.
 def _facility_key(name: str, street: str, postal: str, city: str) -> str:
-
     raw = f"{SOURCE}|{name}|{street}|{postal}|{city}".lower()
     return _sha1(raw)
 
@@ -80,7 +79,7 @@ def _split_address(addr: Optional[str]) -> Tuple[str, str, str]:
 
 
 
-# Mappt die Kategorien der Seite auf deine FacilityType(Enum)-Werte.
+# Mappt die Kategorien der Seite auf die FacilityType(Enum)-Werte.
 # Wichtig: Rückgabe MUSS mit deinem Backend-Enum kompatibel sein,
 # sonst knallt der facilities_type_check.
 def _to_internal_type(label: str) -> str:
@@ -90,7 +89,8 @@ def _to_internal_type(label: str) -> str:
     mapping = {
         "ambulanter dienst": "AMBULANTER_PFLEGEDIENST",
         "ambulanter pflegedienst": "AMBULANTER_PFLEGEDIENST",
-        "kurzzeitpflege": "KURZZEITPFLEGE",
+        "kurzzeitpflege": "KURZZEITPFLEGEHEIM",
+        "kurzzeitpflegeheim" : "KURZZEITPFLEGEHEIM",
         "krankenhaus": "KRANKENHAUS",
         "sanitätshaus": "SANITAETSHAUS",
         "therapie": "THERAPIE",
@@ -215,5 +215,5 @@ def persist_gelsenkirchen_gesundheitskarte(conn) -> int:
             cur.fetchone()  # id wird erzeugt, hier nicht benötigt
             written += 1
 
-    print(f"[scraper] [GE] ✅ Einrichtungen upserted: {written}")
+    print(f"[scraper] [GE] ✅ Facilities upserted: {written}")
     return written
