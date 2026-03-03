@@ -62,6 +62,7 @@ services:
       DB_NAME: bachelor
       DB_USER: bachelor
       DB_PASSWORD: bachelor
+      APONET_TOKEN: ${APONET_TOKEN}
 
     # ✅ wartet auf DB UND Backend-Health
     depends_on:

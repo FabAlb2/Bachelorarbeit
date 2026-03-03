@@ -1,27 +1,43 @@
 # sources/aponet_apothekensuche.py
 import os
+import re
 import hashlib
-import random
 import time
-from typing import Any, Dict, List, Optional
+import random
+from typing import Any, Dict, List, Optional, Set
 
 import requests
 
 # ==============================
 # KONSTANTEN
 # ==============================
-URL = "https://www.aponet.de/apotheke/apothekensuche"
+BASE_URL = "https://www.aponet.de/apotheke/apothekensuche"
 SOURCE = "aponet_apotheken"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; BachelorarbeitScraper/1.0)",
-    "Accept": "application/json,text/html,*/*",
+SEARCH_TERM = os.getenv("APONET_PLZORT", "Gelsenkirchen")
+RADIUS_KM = int(os.getenv("APONET_RADIUS", "10"))
+TIMEOUT = int(os.getenv("APONET_TIMEOUT", "30"))
+
+# Manuell aus Browser/Postman übergeben (derzeit der zuverlässige Weg)
+# Beispiel:
+# docker compose run --rm -e APONET_TOKEN=2168... scraper python /app/sources/aponet_apothekensuche.py
+TOKEN_FROM_ENV = os.getenv("APONET_TOKEN")
+
+HEADERS_HTML = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "de-DE,de;q=0.9,en;q=0.7",
 }
 
-SEARCH_TERM = os.getenv("APONET_PLZORT", "gelsenkirchen")
-RADIUS_KM = int(os.getenv("APONET_RADIUS", "20"))  # nimm erstmal 20 wie im Browser
-TIMEOUT = 30
+# Entspricht deinem funktionierenden Request (Postman/Browser)
+HEADERS_AJAX = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": BASE_URL,
+    "Accept-Language": "de-DE,de;q=0.9,en;q=0.7",
+}
+
 
 # ==============================
 # HILFSFUNKTIONEN
@@ -35,96 +51,151 @@ def _facility_key(name: str, street: str, postal: str, city: str) -> str:
     return _sha1(raw)
 
 
-def _clean(s: Optional[str]) -> str:
-    return (s or "").strip()
+def _clean(v: Any) -> str:
+    if v is None:
+        return ""
+    return str(v).strip()
 
 
-def _try_float(x: Any) -> Optional[float]:
-    if x is None:
+def _try_float(v: Any) -> Optional[float]:
+    if v in (None, "", []):
         return None
     try:
-        return float(str(x).replace(",", ".").strip())
+        return float(str(v).replace(",", ".").strip())
     except Exception:
         return None
 
 
 def _is_in_gelsenkirchen(city: str, postal: str) -> bool:
-    c = (city or "").lower().strip()
-    p = (postal or "").strip()
+    """
+    Robust:
+    - Stadtname enthält 'gelsenkirchen'
+    - oder PLZ beginnt mit 458
+    """
+    c = _clean(city).lower()
+    p = _clean(postal)
     return ("gelsenkirchen" in c) or p.startswith("458")
 
 
 # ==============================
-# 1) SCRAPEN (JSON -> Python Dicts)
+# TOKEN BESCHAFFUNG
 # ==============================
-def _fetch_page(session: requests.Session, page: int, token: Optional[str]) -> Dict[str, Any]:
+def fetch_token(session: requests.Session) -> str:
+    # 1) ENV-Fallback (bei dir aktuell der sichere Weg)
+    if TOKEN_FROM_ENV:
+        print(f"[aponet] Verwende APONET_TOKEN aus ENV: {TOKEN_FROM_ENV[:12]}...")
+        # Seite optional laden (Cookies/Session)
+        try:
+            session.get(BASE_URL, headers=HEADERS_HTML, timeout=TIMEOUT)
+        except Exception:
+            pass
+        return TOKEN_FROM_ENV.strip()
 
-    # 1) Erst normale Seite aufrufen (setzt Cookies)
-    session.get(
-        "https://www.aponet.de/apotheke/apothekensuche/gelsenkirchen",
-        headers=HEADERS,
-        timeout=TIMEOUT,
+    # 2) Versuch: Token aus HTML ziehen (funktioniert evtl. nicht immer)
+    r = session.get(BASE_URL, headers=HEADERS_HTML, timeout=TIMEOUT)
+    r.raise_for_status()
+    html = r.text
+
+    patterns = [
+        r'name="tx_aponetpharmacy_search\[token\]"\s+value="([^"]+)"',
+        r'value="([a-f0-9]{64})"[^>]*name="tx_aponetpharmacy_search\[token\]"',
+        r'"token"\s*:\s*"([a-f0-9]{64})"',
+        r"tx_aponetpharmacy_search\[token\][^a-f0-9]*([a-f0-9]{64})",
+    ]
+
+    for pat in patterns:
+        m = re.search(pat, html, flags=re.IGNORECASE)
+        if m:
+            token = m.group(1)
+            print(f"[aponet] Token aus HTML gefunden: {token[:12]}...")
+            return token
+
+    print("[aponet] Token nicht im HTML gefunden.")
+    print("[aponet] HTML-Start:", html[:300].replace("\n", " "))
+    raise RuntimeError(
+        "Token konnte nicht gefunden werden. "
+        "Setze APONET_TOKEN als Environment-Variable (aus Browser/Postman)."
     )
 
+
+# ==============================
+# API REQUEST (ein Request reicht hier)
+# ==============================
+def _fetch_search_json(session: requests.Session, token: str, plzort: str, radius_km: int) -> Dict[str, Any]:
     params = {
         "type": "1981",
         "tx_aponetpharmacy_search[action]": "result",
         "tx_aponetpharmacy_search[controller]": "Search",
-
-        "tx_aponetpharmacy_search[search][plzort]": "gelsenkirchen",
-        "tx_aponetpharmacy_search[search][strasse]": "-",
-        "tx_aponetpharmacy_search[search][radius]": "20",
+        "tx_aponetpharmacy_search[search][plzort]": plzort,
+        "tx_aponetpharmacy_search[search][date]": "",
+        "tx_aponetpharmacy_search[search][street]": "",
+        "tx_aponetpharmacy_search[search][radius]": str(radius_km),
         "tx_aponetpharmacy_search[search][lat]": "",
         "tx_aponetpharmacy_search[search][lng]": "",
-        "tx_aponetpharmacy_search[search][date]": "",
-
-        "tx_aponetpharmacy_search[search][page]": str(page),
+        "tx_aponetpharmacy_search[token]": token,
     }
 
-    r = session.get(
-        "https://www.aponet.de/apotheke/apothekensuche",
-        params=params,
-        headers={
-            **HEADERS,
-            "Referer": "https://www.aponet.de/apotheke/apothekensuche/gelsenkirchen",
-        },
-        timeout=TIMEOUT,
-    )
 
+    r = session.get(BASE_URL, params=params, headers=HEADERS_AJAX, timeout=TIMEOUT)
     r.raise_for_status()
+    
+    ct = (r.headers.get("Content-Type") or "").lower()
+    if "json" not in ct and not r.text.strip().startswith("{"):
+        print("[aponet] Antwort-Start:", r.text[:400])
+        raise RuntimeError("Aponet lieferte kein JSON (Token/Header/Session-Problem).")
+    
     return r.json()
 
+    
 
-def scrape_all_facilities(max_pages: int = 200) -> List[Dict]:
+
+
+# ==============================
+# SCRAPEN
+# ==============================
+def scrape_all_facilities() -> List[Dict[str, Any]]:
     session = requests.Session()
+    token = fetch_token(session)
 
-    token: Optional[str] = None
-    items: List[Dict] = []
+    # Mehrere Zentren: Norden/Mitte/Süden (kannst du anpassen)
+    search_centers = [
+        ("45879", 5),
+        ("45881", 5),
+        ("45883", 5),
+        ("45884", 5),
+        ("45886", 5),
+        ("45888", 5),
+        ("45889", 5),
+        ("45891", 5),
+        ("45892", 5),
+        ("45894", 5),
+        ("45896", 5),
+        ("45897", 5),
+        ("45899", 5),
+    ]
 
-    total_seen = 0
+    items: List[Dict[str, Any]] = []
+    seen_apo_ids: Set[str] = set()
+    seen_source_keys: Set[str] = set()
 
-    for page in range(max_pages):
-        data = _fetch_page(session, page=page, token=token)
+    total_received = 0
+    filtered_out_not_ge = 0
+    duplicates_skipped = 0
 
-        # token beim ersten Call aus der Antwort übernehmen
-        if token is None:
-            token = (data.get("args") or {}).get("token")
-
+    for plzort, radius in search_centers:
+        data = _fetch_search_json(session, token=token, plzort=plzort, radius_km=radius)
         results = data.get("results") or {}
-        statistik = results.get("statistik") or {}
-        anzahl = statistik.get("anzahl")
-
         apo_list = ((results.get("apotheken") or {}).get("apotheke")) or []
-        total_seen += len(apo_list)
+        total_received += len(apo_list)
 
-        # Debug (kannst du drin lassen, ist hilfreich)
-        print(f"[scraper] [APONET] page={page} statistik.anzahl={anzahl} page_len={len(apo_list)}")
-
-        # Abbruch: keine Treffer mehr
-        if not apo_list:
-            break
+        print(f"[aponet] search='{plzort}' radius={radius} empfangen={len(apo_list)}")
 
         for a in apo_list:
+            apo_id = _clean(a.get("apo_id") or a.get("id"))
+            if apo_id and apo_id in seen_apo_ids:
+                duplicates_skipped += 1
+                continue
+
             name = _clean(a.get("name"))
             street = _clean(a.get("strasse"))
             postal = _clean(a.get("plz"))
@@ -132,44 +203,64 @@ def scrape_all_facilities(max_pages: int = 200) -> List[Dict]:
 
             # nur Gelsenkirchen
             if not _is_in_gelsenkirchen(city, postal):
+                filtered_out_not_ge += 1
+                if apo_id:
+                    seen_apo_ids.add(apo_id)
                 continue
 
-            lat = _try_float(a.get("latitude"))
-            lon = _try_float(a.get("longitude"))
-            phone = _clean(a.get("telefon"))
+            rec = {
+                "source": SOURCE,
+                "source_key": _facility_key(name, street, postal, city),
+                "facility_name": name,
+                "type": "APOTHEKE",
+                "street": street,
+                "postal_code": postal,
+                "city": city,
+                "phone": _clean(a.get("telefon")),
+                "latitude": _try_float(a.get("latitude")),
+                "longitude": _try_float(a.get("longitude")),
+                "wheelchair_accessible": None,
+            }
 
-            items.append(
-                {
-                    "source": SOURCE,
-                    "source_key": _facility_key(name, street, postal, city),
-                    "facility_name": name,
-                    "type": "APOTHEKE",
-                    "street": street,
-                    "postal_code": postal,
-                    "city": city,
-                    "phone": phone,
-                    "latitude": lat,
-                    "longitude": lon,
-                    "wheelchair_accessible": None,
-                }
-            )
+            if rec["source_key"] in seen_source_keys:
+                duplicates_skipped += 1
+                if apo_id:
+                    seen_apo_ids.add(apo_id)
+                continue
 
-        # freundlich sein
-        time.sleep(random.uniform(0.6, 1.2))
+            seen_source_keys.add(rec["source_key"])
+            if apo_id:
+                seen_apo_ids.add(apo_id)
 
-    # (optional) kurze Zusammenfassung
-    print(f"[scraper] [APONET] gesammelt={len(items)} (nach Filter), gesehen_in_pages={total_seen}")
+            items.append(rec)
+
+        time.sleep(random.uniform(0.4, 0.9))  # freundlich bleiben
+
+    print(
+        f"[aponet] summary_multi: searches={len(search_centers)}, "
+        f"gesamt_empfangen={total_received}, "
+        f"verworfen_nicht_GE={filtered_out_not_ge}, "
+        f"duplikate={duplicates_skipped}, "
+        f"final_gespeichert={len(items)}"
+    )
+
     return items
 
 
+# Optionaler Alias, falls irgendwo noch scrape_all() aufgerufen wird
+def scrape_all() -> List[Dict[str, Any]]:
+    return scrape_all_facilities()
+
+
 # ==============================
-# 2) PERSISTIEREN (Dicts -> DB)
+# DB PERSISTIEREN
 # ==============================
 UPSERT_FACILITY_RETURN_ID = """
 INSERT INTO facilities
-  (source, source_key, facility_name, type, street, postal_code, city, phone, latitude, longitude, wheelchair_accessible)
+  (source, source_key, facility_name, type, street, postal_code, city, phone,
+   latitude, longitude, wheelchair_accessible, last_seen_at)
 VALUES
-  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
 ON CONFLICT (source, source_key)
 DO UPDATE SET
   facility_name = EXCLUDED.facility_name,
@@ -180,7 +271,8 @@ DO UPDATE SET
   phone = EXCLUDED.phone,
   latitude = EXCLUDED.latitude,
   longitude = EXCLUDED.longitude,
-  wheelchair_accessible = EXCLUDED.wheelchair_accessible
+  wheelchair_accessible = EXCLUDED.wheelchair_accessible,
+  last_seen_at = NOW()
 RETURNING id;
 """
 
@@ -189,7 +281,7 @@ def persist_aponet_apotheken_gelsenkirchen(conn) -> int:
     facilities = scrape_all_facilities()
 
     if not facilities:
-        print("[scraper] [APONET] Keine Apotheken (Gelsenkirchen) gefunden.")
+        print("[aponet] Keine Apotheken (Gelsenkirchen) gefunden.")
         return 0
 
     written = 0
@@ -211,19 +303,23 @@ def persist_aponet_apotheken_gelsenkirchen(conn) -> int:
                     fac["wheelchair_accessible"],
                 ),
             )
-            cur.fetchone()
+            cur.fetchone()  # RETURNING id validieren
             written += 1
 
-    print(f"[scraper] [APONET] ✅ Apotheken upserted: {written}")
+    # Kein commit hier erzwingen – main.py macht conn.commit()
+    print(f"[aponet] ✅ Apotheken upserted: {written}")
     return written
 
 
 # ==============================
-# 3) ALLEINE STARTEN (ohne main.py)
+# STANDALONE TEST
 # ==============================
 if __name__ == "__main__":
-    # Standalone-Test OHNE DB: nur scrapen und die ersten Einträge anzeigen
-    facilities = scrape_all_facilities()
-    print(f"[scraper] [APONET] FINAL count={len(facilities)}")
-    for f in facilities[:10]:
-        print(f"- {f['facility_name']} | {f['street']} | {f['postal_code']} {f['city']}")
+    try:
+        facilities = scrape_all_facilities()
+        print(f"[aponet] FINAL count={len(facilities)}")
+        for f in facilities:
+            print(f"- {f['facility_name']} | {f['street']} | {f['postal_code']} {f['city']}")
+    except Exception as e:
+        print(f"[aponet] ❌ Fehler: {e}")
+        raise

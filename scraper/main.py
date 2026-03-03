@@ -397,15 +397,36 @@ def main():
     ) as conn:
         with conn.cursor() as cur:
             
-            cur.execute("""
-                        DELETE FROM facilities
-                        WHERE source = %s
-                            AND last_seen_at < NOW() - INTERVAL '7 days'
-                        """, (SOURCE,),
-                    )
-            deleted = cur.rowcount
+            # Cleanup: erst abhängige doctors löschen, dann facilities (FK-Schutz)
+            cur.execute(
+                """
+                WITH doomed AS (
+                    SELECT id
+                    FROM facilities
+                    WHERE source = %s
+                      AND last_seen_at < NOW() - INTERVAL '7 days'
+                )
+                DELETE FROM doctors d
+                USING doomed
+                WHERE d.facility_id = doomed.id;
+                """,
+                (SOURCE,),
+            )
+            doctors_deleted = cur.rowcount
+
+            cur.execute(
+                """
+                DELETE FROM facilities
+                WHERE source = %s
+                  AND last_seen_at < NOW() - INTERVAL '7 days';
+                """,
+                (SOURCE,),
+            )
+            facilities_deleted = cur.rowcount
+
             conn.commit()
-            print(f"[scraper] 🧹 Alte Facilities gelöscht: {deleted}")
+            print(f"[scraper] 🧹 Alte Doctors gelöscht: {doctors_deleted}")
+            print(f"[scraper] 🧹 Alte Facilities gelöscht: {facilities_deleted}")
             
             facilities_written = 0
             doctors_written = 0
