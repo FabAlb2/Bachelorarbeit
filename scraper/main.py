@@ -5,7 +5,7 @@ import random
 from typing import Any, Dict, Iterable, Optional, Tuple, List
 from sources.gelsenkirchen_gesundheitskarte import persist_gelsenkirchen_gesundheitskarte
 from sources.aponet_apothekensuche import persist_aponet_apotheken_gelsenkirchen
-from sources.opendata_bevoelkerung_nationalitaet import persist_population_from_csv
+
 
 import requests
 import psycopg
@@ -484,12 +484,6 @@ def main():
             except Exception as e:
                 print(f"[scraper] ❌ HTML-Quellen Fehler: {e}")
                 
-            print("[scraper] ✅ Starte OpenData CSV Import...")
-            try:
-                written = persist_population_from_csv(conn, "/app/data/stadt-gelsenkirchen-statistik-bevoelkerung-nationalitaet.csv")
-                conn.commit()
-            except Exception as e:
-                print(f"[scraper] ❌ OpenData bevoelkerung-Datei Import Fehler: {e}")
 
         # jetzt sind wir außerhalb der Connection → alles fertig
         print(f"[scraper] ✅ Facilities upserted: {facilities_written}")

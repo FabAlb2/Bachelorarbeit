@@ -46,43 +46,48 @@
       </div>
 
 
+      <div class="population-bar">
+  <div class="panel-wrap">
+    <details class="panel" id="popPanel">
+      <summary class="panel-summary">Staatsangehörigkeit</summary>
 
-    <div class="panel-wrap">
-  <details class="panel" id="popPanel">
-    <summary class="panel-summary">Bevölkerung Staatsangehörigkeit</summary>
+            <div class="panel-popup">
+              <div class="panel-body">
+                <div class="field">
+                  <label for="popStichtag">Stichtag:</label>
+                  <select id="popStichtag">
+                    <option value="">Datum auswählen</option>
+                  </select>
+                </div>
 
-    <div class="panel-popup">
-      <div class="panel-body">
-        <div class="field">
-          <label for="popStichtag">Stichtag:</label>
-          <select id="popStichtag">
-            <option value="">Datum auswählen</option>
-          </select>
+                <div class="field hidden" id="statusAuswahl">
+                  <span>Staatsangehörigkeit:</span>
+
+                  <label><input type="radio" name="bevoelkerungStatus" value="deutsch"> Deutsch</label>
+                  <label><input type="radio" name="bevoelkerungStatus" value="deutschMit2Sta"> Deutsch mit 2. Staatsbürgerschaft</label>
+                  <label><input type="radio" name="bevoelkerungStatus" value="nichtdeutsch"> Nicht deutsch</label>
+                  <label><input type="radio" name="bevoelkerungStatus" value="gesamt"> Gesamt</label>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
-
-        <div class="field hidden" id="statusAuswahl">
-          <span>Staatsangehörigkeit:</span>
-
-          <label><input type="radio" name="bevoelkerungStatus" value="deutsch"> Deutsch</label>
-          <label><input type="radio" name="bevoelkerungStatus" value="deutschMit2Sta"> Deutsch mit 2. Staatsbürgerschaft</label>
-          <label><input type="radio" name="bevoelkerungStatus" value="nichtdeutsch"> Nicht deutsch</label>
-          <label><input type="radio" name="bevoelkerungStatus" value="gesamt"> Gesamt</label>
-        </div>
+        <button id="resetPopulationBtn" type="button" class="reset-btn">Filter löschen</button>
       </div>
-    </div>
-  </details>
-</div>
       
-
 
       <div class="route-controls">
         <input id="routeStart" class="search-input" placeholder="Start (Adresse oder 'Mein Standort')" />
         <input id="routeEnd" class="search-input" placeholder="Ziel (Adresse oder Einrichtung/Arzt)" />
         <button id="routeBtn" type="button">Route berechnen</button>
         <button id="routeClearBtn" type="button">Route löschen</button>
-
+        <label for="routeMode">Verkehrsmittel:</label>
+        <select id="routeMode">
+          <option value="car">Auto</option>
+        </select>
         <div id="routeInfo" class="route-info" hidden></div>
       </div>
+
      </div>
     </section>
 
@@ -108,7 +113,7 @@
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Java Script Datei -->
-  <script type="module" src="app.js"></script>
+  <script type="module" src="/js/app.js"></script>
 
 </body>
 </html>

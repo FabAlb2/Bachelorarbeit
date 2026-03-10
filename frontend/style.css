@@ -172,7 +172,26 @@
 }
 
 
+.population-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+}
 
+.reset-btn {
+  margin-left: auto;
+  padding: 8px 14px;
+  border: 1px solid #bfc7bf;
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.reset-btn:hover {
+  background: #f3f3f3;
+}
 
 
 /* =========================================

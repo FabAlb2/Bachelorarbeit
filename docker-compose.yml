@@ -23,8 +23,6 @@ services:
       osrm:
         condition: service_started
 
-
-
   db:
     image: postgres:16
     container_name: bachelor-db
@@ -63,17 +61,32 @@ services:
       DB_USER: bachelor
       DB_PASSWORD: bachelor
       APONET_TOKEN: ${APONET_TOKEN}
-
-    # ✅ wartet auf DB UND Backend-Health
     depends_on:
       db:
         condition: service_healthy
       backend:
         condition: service_started
-
-    volumes: 
+    volumes:
       - ./scraper/data:/app/data:ro
-      
+    restart: "no"
+
+  file-importer:
+    build: ./scraper
+    container_name: bachelor-file-importer
+    entrypoint: ["python", "/app/dateien_importer.py"]
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: bachelor
+      DB_USER: bachelor
+      DB_PASSWORD: bachelor
+      DATA_DIR: /app/data
+      POPULATION_CSV_PATH: /app/data/stadt-gelsenkirchen-statistik-bevoelkerung-nationalitaet.csv
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./scraper/data:/app/data:ro
     restart: "no"
 
 volumes:

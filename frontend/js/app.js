@@ -1,16 +1,37 @@
+import {
+  loadDoctors,
+  loadFacilities,
+  loadPopulationStichtage,
+  loadPopulationByDate,
+} from "./api.js";
+
+import {
+  createMap,
+  loadDistrictLayer,
+  resetDistrictLayerStyle,
+  updateDistrictPopulationLayer,
+} from "./map.js";
+
+import {
+  getSelectedBevoelkerungStatus,
+  buildPopulationMap,
+} from "./population.js";
+
+import {
+  prettyType,
+  normalize,
+  isTrue,
+  setLoading,
+  setError,
+  formatKm,
+  formatDuration,
+} from "./utils.js";
+
 /* ==============================
-   API Endpoints
+   Konstanten
 ============================== */
-const API_DOCTORS_URL = "/api/doctors";
-const API_FACILITIES_URL = "/api/facilities";
-const API_POP_STICHTAGE = "/api/district-population/stichtage";
-const API_POP_BY_DATE = "/api/district-population"; // ?stichtag=YYYY-MM-DD
-
-// Für Routenberechnung
-const OSRM_URL = "http://localhost:5000"; // ggf. docker: "http://osrm-routing:5000"
+const OSRM_URL = "http://localhost:5000";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
-
-let routeLayer = null;
 
 /* ==============================
    DOM Elemente
@@ -19,6 +40,8 @@ const els = {
   popStichtag: document.getElementById("popStichtag"),
   statusAuswahl: document.getElementById("statusAuswahl"),
   bevoelkerungStatusRadios: document.querySelectorAll('input[name="bevoelkerungStatus"]'),
+  resetPopulationBtn: document.getElementById("resetPopulationBtn"),
+  popPanel: document.getElementById("popPanel"),
 
   suchfeld: document.getElementById("suchfeld"),
   checkBarriere: document.getElementById("checkBarriere"),
@@ -28,8 +51,8 @@ const els = {
   routeBtn: document.getElementById("routeBtn"),
   routeClearBtn: document.getElementById("routeClearBtn"),
   routeInfo: document.getElementById("routeInfo"),
+  resetFiltersBtn: document.getElementById("resetFiltersBtn"),
 
-  // Alle Facility-Type Checkboxen (class="facilityType")
   facilityTypeChecks: document.querySelectorAll(".facilityType"),
 
   list: document.getElementById("list"),
@@ -39,302 +62,39 @@ const els = {
 };
 
 /* ==============================
-   Daten
+   State
 ============================== */
 let doctors = [];
 let facilities = [];
 let facilitiesLoaded = false;
 let currentPopulationData = [];
-
-const TYPE_LABELS = {
-  ARZTPRAXIS: "Arztpraxis",
-  APOTHEKE: "Apotheke",
-  PFLEGE: "Pflege",
-  KRANKENHAUS: "Krankenhaus",
-  SANITAETSHAUS: "Sanitätshaus",
-  AMBULANTER_PFLEGEDIENST: "Ambulanter Pflegedienst",
-  KURZZEITPFLEGEHEIM: "Kurzzeitpflegeheim",
-  STATIONAERE_PFLEGE: "Stationäre Pflege",
-  KURZZEITPFLEGE: "Kurzzeitpflege",
-  THERAPIE: "Therapie",
-  BERATUNGSSTELLE: "Beratungsstelle",
-  SONSTIGES: "Sonstiges",
-};
-
-function prettyType(t) {
-  return TYPE_LABELS[t] ?? t ?? "—";
-}
+let routeLayer = null;
+let districtLayer = null;
 
 /* ==============================
    Karte
 ============================== */
-const map = L.map("map").setView([51.5177, 7.0857], 12);
-
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "&copy; OpenStreetMap-Mitwirkende",
-}).addTo(map);
-
-const markersLayer = L.markerClusterGroup({
-  spiderfyOnMaxZoom: true,
-  showCoverageOnHover: false,
-  maxClusterRadius: 5,
-});
-map.addLayer(markersLayer);
-
-// Verwaltungsgrenzen
-fetch("/Verwaltungsgrenzen_geojson.json")
-  .then((res) => res.json())
-  .then((data) => {
-    window.districtLayer = L.geoJSON(data, {
-      style: {
-        color: "#0044cc",
-        weight: 2,
-        fillOpacity: 0.1,
-        fillColor: "#ffffff",
-      },
-      onEachFeature: function (feature, layer) {
-        layer.on("click", function () {
-          markersLayer.unspiderfy();
-        });
-      },
-    }).addTo(map);
-  })
-  .catch((err) => {
-    console.error("GeoJSON konnte nicht geladen werden:", err);
-    setError("Verwaltungsgrenzen konnten nicht geladen werden.");
-  });
+const { map, markersLayer } = createMap();
 
 /* ==============================
    Bevölkerung
 ============================== */
-async function loadPopulationStichtage() {
-  const response = await fetch(API_POP_STICHTAGE);
-  if (!response.ok) {
-    throw new Error("Stichtage konnten nicht geladen werden.");
-  }
-
-  const stichtage = await response.json();
+async function fillPopulationStichtageSelect() {
+  const stichtage = await loadPopulationStichtage();
 
   els.popStichtag.innerHTML = '<option value="">Datum auswählen</option>';
 
   stichtage.forEach((datum) => {
     const option = document.createElement("option");
     option.value = datum;
-    option.textContent = datum;
+    option.textContent = formatDateForDisplay(datum);
     els.popStichtag.appendChild(option);
   });
 }
 
-async function loadPopulationByDate(stichtag) {
-  const response = await fetch(`${API_POP_BY_DATE}?stichtag=${encodeURIComponent(stichtag)}`);
-  if (!response.ok) {
-    throw new Error("Bevölkerungsdaten konnten nicht geladen werden.");
-  }
-
-  return await response.json();
-}
-
-function getSelectedBevoelkerungStatus() {
-  return document.querySelector('input[name="bevoelkerungStatus"]:checked')?.value || null;
-}
-
-function getPopulationValueByStatus(item, status) {
-  switch (status) {
-    case "deutsch":
-      return item.deutsch;
-    case "deutschMit2Sta":
-      return item.deutschMit2Sta;
-    case "nichtdeutsch":
-      return item.nichtdeutsch;
-    case "gesamt":
-      return item.gesamt;
-    default:
-      return null;
-  }
-}
-
-function getPopulationStatusLabel(status) {
-  switch (status) {
-    case "alle":
-      return "alle";
-    case "deutsch":
-      return "deutsch";
-    case "deutschMit2Sta":
-      return "deutsch mit 2. Staatsbürgerschaft";
-    case "nichtdeutsch":
-      return "nicht deutsch";
-    default:
-      return "unbekannt";
-  }
-}
-
-function formatPopulationNumber(value) {
-  if (value == null || Number.isNaN(value)) return "keine Daten";
-  return new Intl.NumberFormat("de-DE").format(value);
-}
-
-function buildPopulationMap(data, status) {
-  const result = new Map();
-
-  data.forEach((item) => {
-    const key = normalizeDistrictName(item.stadtteilName);
-    result.set(key, getPopulationValueByStatus(item, status));
-  });
-
-  return result;
-}
-
-
-function getPopulationBreaks(values, steps = 7) {
-  const sorted = values
-    .filter((v) => typeof v === "number" && !Number.isNaN(v))
-    .sort((a, b) => a - b);
-
-  if (sorted.length === 0) return [];
-
-  const breaks = [];
-  for (let i = 1; i < steps; i++) {
-    const index = Math.floor((sorted.length * i) / steps);
-    breaks.push(sorted[Math.min(index, sorted.length - 1)]);
-  }
-
-  return breaks;
-}
-
-function getPopulationColor(value, breaks) {
-  if (value == null || Number.isNaN(value)) return "#cccccc";
-
-  const colors = [
-    "#f7fbff",
-    "#deebf7",
-    "#c6dbef",
-    "#9ecae1",
-    "#6baed6",
-    "#4292c6",
-    "#08519c",
-  ];
-
-  for (let i = 0; i < breaks.length; i++) {
-    if (value <= breaks[i]) return colors[i];
-  }
-
-  return colors[colors.length - 1];
-}
-
-function updateDistrictPopulationLayer(populationMap, status) {
-  if (!window.districtLayer) return;
-
-  const values = Array.from(populationMap.values()).filter((v) => typeof v === "number");
-  const breaks = getPopulationBreaks(values, 7);
-
-  window.districtLayer.eachLayer((layer) => {
-    const feature = layer.feature;
-
-    const stadtteilName = feature?.properties?.stadtteil_name;
-    const key = normalizeDistrictName(stadtteilName);
-    const value = populationMap.get(key);
-
-    layer.setStyle({
-      color: "#0044cc",
-      weight: 2,
-      fillOpacity: 0.8,
-      fillColor: getPopulationColor(value, breaks),
-    });
-
-    layer.bindPopup(`
-      <b>${stadtteilName ?? "Unbekannt"}</b><br>
-      Kategorie: ${getPopulationStatusLabel(status)}<br>
-      Anzahl: ${formatPopulationNumber(value)}
-    `);
-  });
-}
-
-
-
-function resetDistrictLayerStyle() {
-  if (!window.districtLayer) return;
-
-  window.districtLayer.eachLayer((layer) => {
-    const feature = layer.feature;
-    const name =
-      feature?.properties?.stadtteil_name ||
-      feature?.properties?.name ||
-      "Unbekannt";
-
-    layer.setStyle({
-      color: "#0044cc",
-      weight: 2,
-      fillOpacity: 0.1,
-      fillColor: "#ffffff",
-    });
-
-    layer.bindPopup(`<b>${name}</b>`);
-  });
-}
-
-els.popStichtag?.addEventListener("change", async function () {
-  try {
-    if (this.value !== "") {
-      els.statusAuswahl?.classList.remove("hidden");
-      currentPopulationData = await loadPopulationByDate(this.value);
-
-      const status = getSelectedBevoelkerungStatus();
-      if (status) {
-        const populationMap = buildPopulationMap(currentPopulationData, status);
-        updateDistrictPopulationLayer(populationMap, status);
-      }
-    } else {
-      els.statusAuswahl?.classList.add("hidden");
-      currentPopulationData = [];
-
-      els.bevoelkerungStatusRadios.forEach((radio) => {
-        radio.checked = false;
-      });
-
-      resetDistrictLayerStyle();
-    }
-  } catch (e) {
-    console.error(e);
-    setError("Bevölkerungsdaten konnten nicht geladen werden.");
-  }
-});
-
-els.bevoelkerungStatusRadios.forEach((radio) => {
-  radio.addEventListener("change", function () {
-    const status = getSelectedBevoelkerungStatus();
-    if (!status || currentPopulationData.length === 0) return;
-
-    const populationMap = buildPopulationMap(currentPopulationData, status);
-    updateDistrictPopulationLayer(populationMap, status);
-  });
-});
-
-
 /* ==============================
    Helfer
 ============================== */
-function normalize(v) {
-  return (v ?? "").toString().toLowerCase().trim();
-}
-
-function normalizeDistrictName(name) {
-  return (name ?? "").toString().trim().toLowerCase();
-}
-
-function isTrue(v) {
-  return v === true || v === "true" || v === 1 || v === "1";
-}
-
-function setLoading(on) {
-  els.loading.hidden = !on;
-}
-
-function setError(msg) {
-  els.error.hidden = !msg;
-  els.error.textContent = msg || "";
-}
-
 function getSelectedFacilityTypes() {
   return Array.from(els.facilityTypeChecks || [])
     .filter((cb) => cb.checked)
@@ -356,26 +116,10 @@ function clearRoute() {
   }
 }
 
-function formatKm(m) {
-  const km = m / 1000;
-  return (km < 10 ? km.toFixed(2) : km.toFixed(1)).replace(".", ",") + " km";
-}
-
-function formatDuration(seconds) {
-  const mins = Math.round(seconds / 60);
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const rest = mins % 60;
-  return `${h} h ${rest} min`;
-}
-
-// 1) Suche zuerst in deinen geladenen Daten (Ärzte/Einrichtungen) nach einem Namen.
-// 2) Wenn nix passt: Geocoding über Nominatim (Adresse).
 async function resolveToPoint(inputText) {
   const q = (inputText ?? "").trim();
   if (!q) throw new Error("Bitte Start und Ziel ausfüllen.");
 
-  // "Mein Standort"
   if (q.toLowerCase() === "mein standort") {
     const pos = await new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new Error("Standort nicht verfügbar."));
@@ -434,7 +178,10 @@ async function drawRouteOSRM(start, end) {
 
   const latLngs = route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
 
-  routeLayer = L.polyline(latLngs).addTo(map);
+  routeLayer = L.polyline(latLngs, {
+    color: "red",
+    weight: 5
+  }).addTo(map);
   map.fitBounds(routeLayer.getBounds());
 
   if (els.routeInfo) {
@@ -447,6 +194,14 @@ async function drawRouteOSRM(start, end) {
       Zeit: ${formatDuration(route.duration)}
     `;
   }
+}
+
+
+function formatDateForDisplay(isoDate) {
+  if (!isoDate) return "";
+
+  const [year, month, day] = isoDate.split("-");
+  return `${day}.${month}.${year}`;
 }
 
 /* ==============================
@@ -496,8 +251,39 @@ function getVisibleFacilities() {
   });
 }
 
+
+/**
+ * Resettet die Filter von z.B. Verteilung der Bevölkerung, aber nicht von Route
+ * 
+ */
+function resetPopulationFilter() {
+  if (els.popStichtag) {
+    els.popStichtag.value = "";
+  }
+
+  if (els.statusAuswahl) {
+    els.statusAuswahl.classList.add("hidden");
+  }
+
+  els.bevoelkerungStatusRadios.forEach((radio) => {
+    radio.checked = false;
+  });
+
+  if (els.popPanel) {
+    els.popPanel.open = false;
+  }
+
+  currentPopulationData = [];
+  resetDistrictLayerStyle(districtLayer);
+}
+
+els.resetPopulationBtn?.addEventListener("click", () => {
+  resetPopulationFilter();
+});
+
+
 /* ==============================
-   Render (Liste + Marker)
+   Render
 ============================== */
 function render() {
   els.list.innerHTML = "";
@@ -558,10 +344,10 @@ function render() {
 
       card.innerHTML = `
         <div class="card-title">${doctorName}</div>
-        ${specialty ? `<div class="card-row">🩺 <b>Spezialisierung:  </b><span>${specialty}</span></div>` : ""}
-        ${facilityName ? `<div class="card-row">🏥 <b>Einrichtung:  </b><span>${facilityName}</span></div>` : ""}
-        ${address ? `<div class="card-row">📍 <b>Adresse:  </b><span>${address}</span></div>` : ""}
-        ${phone ? `<div class="card-row">📞 <b>Tel:  </b><a href="tel:${phone.replace(/\s+/g, "")}">${phone}</a></div>` : ""}
+        ${specialty ? `<div class="card-row">🩺 <b>Spezialisierung: </b><span>${specialty}</span></div>` : ""}
+        ${facilityName ? `<div class="card-row">🏥 <b>Einrichtung: </b><span>${facilityName}</span></div>` : ""}
+        ${address ? `<div class="card-row">📍 <b>Adresse: </b><span>${address}</span></div>` : ""}
+        ${phone ? `<div class="card-row">📞 <b>Tel: </b><a href="tel:${phone.replace(/\s+/g, "")}">${phone}</a></div>` : ""}
         ${isTrue(d.wheelchairAccessible) ? `<div class="badge">♿ barrierefrei</div>` : ""}
       `;
 
@@ -590,20 +376,18 @@ function render() {
       card.className = "card";
 
       const title = f.facilityName ?? "Unbekannte Einrichtung";
-
       const addressParts = [
         f.street,
         [f.postalCode, f.city].filter(Boolean).join(" "),
       ].filter(Boolean);
       const address = addressParts.join(", ");
-
       const phone = (f.phone ?? "").trim();
 
       card.innerHTML = `
         <div class="card-title">${title}</div>
-        <div class="card-row">🏷️ <b>Typ:  </b><span>${prettyType(f.type)}</span></div>
-        ${address ? `<div class="card-row">📍 <b>Adresse:  </b><span>${address}</span></div>` : ""}
-        ${phone ? `<div class="card-row">📞 <b>Tel:  </b><a href="tel:${phone.replace(/\s+/g, "")}">${phone}</a></div>` : ""}
+        <div class="card-row">🏷️ <b>Typ: </b><span>${prettyType(f.type)}</span></div>
+        ${address ? `<div class="card-row">📍 <b>Adresse: </b><span>${address}</span></div>` : ""}
+        ${phone ? `<div class="card-row">📞 <b>Tel: </b><a href="tel:${phone.replace(/\s+/g, "")}">${phone}</a></div>` : ""}
         ${isTrue(f.wheelchairAccessible) ? `<div class="badge">♿ barrierefrei</div>` : ""}
       `;
 
@@ -617,32 +401,27 @@ function render() {
 }
 
 /* ==============================
-   Daten laden durch API (je nach Auswahl)
+   Daten laden
 ============================== */
-async function loadDoctors() {
-  const res = await fetch(API_DOCTORS_URL);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  doctors = await res.json();
-}
-
 async function loadFacilitiesOnce() {
   if (facilitiesLoaded) return;
-
-  const res = await fetch(API_FACILITIES_URL);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  facilities = await res.json();
+  facilities = await loadFacilities();
   facilitiesLoaded = true;
 }
 
 async function syncDataFromSelection() {
-  setError("");
-  setLoading(true);
+  setError(els, "");
+  setLoading(els, true);
 
   try {
     const tasks = [];
 
     if (els.checkDoctors.checked && doctors.length === 0) {
-      tasks.push(loadDoctors());
+      tasks.push(
+        loadDoctors().then((data) => {
+          doctors = data;
+        })
+      );
     }
 
     if (getSelectedFacilityTypes().length > 0) {
@@ -650,10 +429,10 @@ async function syncDataFromSelection() {
     }
 
     await Promise.all(tasks);
-  } catch (e) {
-    setError("Daten konnten nicht geladen werden");
+  } catch (_e) {
+    setError(els, "Daten konnten nicht geladen werden");
   } finally {
-    setLoading(false);
+    setLoading(els, false);
     render();
   }
 }
@@ -661,21 +440,55 @@ async function syncDataFromSelection() {
 /* ==============================
    Events
 ============================== */
+els.popStichtag?.addEventListener("change", async function () {
+  try {
+    if (this.value !== "") {
+      els.statusAuswahl?.classList.remove("hidden");
+      currentPopulationData = await loadPopulationByDate(this.value);
+
+      const status = getSelectedBevoelkerungStatus();
+      if (status) {
+        const populationMap = buildPopulationMap(currentPopulationData, status);
+        updateDistrictPopulationLayer(districtLayer, populationMap, status);
+      }
+    } else {
+      els.statusAuswahl?.classList.add("hidden");
+      currentPopulationData = [];
+
+      els.bevoelkerungStatusRadios.forEach((radio) => {
+        radio.checked = false;
+      });
+
+      resetDistrictLayerStyle(districtLayer);
+    }
+  } catch (e) {
+    console.error(e);
+    setError(els, "Bevölkerungsdaten konnten nicht geladen werden.");
+  }
+});
+
+els.bevoelkerungStatusRadios.forEach((radio) => {
+  radio.addEventListener("change", function () {
+    const status = getSelectedBevoelkerungStatus();
+    if (!status || currentPopulationData.length === 0) return;
+
+    const populationMap = buildPopulationMap(currentPopulationData, status);
+    updateDistrictPopulationLayer(districtLayer, populationMap, status);
+  });
+});
+
 els.suchfeld.addEventListener("input", render);
 els.checkBarriere.addEventListener("change", render);
-
-// Ärzte Checkbox
 els.checkDoctors.addEventListener("change", syncDataFromSelection);
 
-// Facility-Type Checkboxen
 for (const cb of els.facilityTypeChecks || []) {
   cb.addEventListener("change", syncDataFromSelection);
 }
 
 els.routeBtn?.addEventListener("click", async () => {
-  setError("");
+  setError(els, "");
   clearRoute();
-  setLoading(true);
+  setLoading(els, true);
 
   try {
     if (facilities.length === 0) {
@@ -688,9 +501,9 @@ els.routeBtn?.addEventListener("click", async () => {
     await drawRouteOSRM(start, end);
   } catch (e) {
     console.error(e);
-    setError(e.message || "Route konnte nicht berechnet werden.");
+    setError(els, e.message || "Route konnte nicht berechnet werden.");
   } finally {
-    setLoading(false);
+    setLoading(els, false);
   }
 });
 
@@ -699,11 +512,19 @@ els.routeClearBtn?.addEventListener("click", () => {
 });
 
 /* ==============================
-   Initialisierung
+   Init
 ============================== */
-loadPopulationStichtage().catch((e) => {
-  console.error(e);
-  setError("Stichtage konnten nicht geladen werden.");
-});
+async function init() {
+  districtLayer = await loadDistrictLayer(map, markersLayer, (msg) => setError(els, msg));
 
-render();
+  try {
+    await fillPopulationStichtageSelect();
+  } catch (e) {
+    console.error(e);
+    setError(els, "Stichtage konnten nicht geladen werden.");
+  }
+
+  render();
+}
+
+init();
