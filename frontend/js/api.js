@@ -24,6 +24,20 @@ export const API_POP_STICHTAGE = "/api/district-population/stichtage";
  */
 export const API_POP_BY_DATE = "/api/district-population";
 
+
+/**
+ * Endpoint für die verfügbaren Bevölkerungs-Stichtage.
+ */
+export const API_UNEMPLOYMENT_STICHTAGE = "/api/district-unemployment/stichtage";
+
+/**
+ * Endpoint für Bevölkerungsdaten eines bestimmten Stichtags.
+ * Nutzung mit Query-Parameter: ?stichtag=YYYY-MM-DD
+ */
+export const API_UNEMPLOYMENT_BY_DATE = "/api/district-unemployment";
+
+
+
 /**
  * Lädt alle Ärztedaten aus dem Backend.
  */
@@ -62,6 +76,26 @@ export async function loadPopulationByDate(stichtag) {
   const response = await fetch(`${API_POP_BY_DATE}?stichtag=${encodeURIComponent(stichtag)}`);
   if (!response.ok) {
     throw new Error("Bevölkerungsdaten konnten nicht geladen werden.");
+  }
+
+  return await response.json();
+}
+
+
+
+export async function loadUnemploymentStichtage() {
+  const response = await fetch(API_UNEMPLOYMENT_STICHTAGE);
+  if (!response.ok) {
+    throw new Error("Arbeitslosen-Stichtage konnten nicht geladen werden.");
+  }
+
+  return await response.json();
+}
+
+export async function loadUnemploymentByDate(stichtag) {
+  const response = await fetch(`${API_UNEMPLOYMENT_BY_DATE}?stichtag=${encodeURIComponent(stichtag)}`);
+  if (!response.ok) {
+    throw new Error("Arbeitslosen-Daten konnten nicht geladen werden.");
   }
 
   return await response.json();

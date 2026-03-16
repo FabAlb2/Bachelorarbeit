@@ -3,6 +3,8 @@ import {
   loadFacilities,
   loadPopulationStichtage,
   loadPopulationByDate,
+  loadUnemploymentStichtage,
+  loadUnemploymentByDate,
 } from "./api.js";
 
 import {
@@ -10,12 +12,18 @@ import {
   loadDistrictLayer,
   resetDistrictLayerStyle,
   updateDistrictPopulationLayer,
+  updateDistrictUnemploymentLayer,
 } from "./map.js";
 
 import {
   getSelectedBevoelkerungStatus,
   buildPopulationMap,
 } from "./population.js";
+
+import {
+  getSelectedUnemploymentStatus,
+  buildUnemploymentMap,
+} from "./unemployment.js";
 
 import {
   prettyType,
@@ -38,10 +46,15 @@ const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 ============================== */
 const els = {
   popStichtag: document.getElementById("popStichtag"),
-  statusAuswahl: document.getElementById("statusAuswahl"),
+  statusAuswahlBevoelkerung: document.getElementById("statusAuswahlBevoelkerung"),
   bevoelkerungStatusRadios: document.querySelectorAll('input[name="bevoelkerungStatus"]'),
   resetPopulationBtn: document.getElementById("resetPopulationBtn"),
   popPanel: document.getElementById("popPanel"),
+
+  unemploymentStichtag: document.getElementById("unemploymentStichtag"),
+  statusAuswahlUnemployment: document.getElementById("statusAuswahlUnemployment"),
+  unemploymentStatusRadios: document.querySelectorAll('input[name="unemploymentStatus"]'),
+  unemploymentPanel: document.getElementById("unemploymentPanel"),
 
   suchfeld: document.getElementById("suchfeld"),
   checkBarriere: document.getElementById("checkBarriere"),
@@ -51,7 +64,6 @@ const els = {
   routeBtn: document.getElementById("routeBtn"),
   routeClearBtn: document.getElementById("routeClearBtn"),
   routeInfo: document.getElementById("routeInfo"),
-  resetFiltersBtn: document.getElementById("resetFiltersBtn"),
 
   facilityTypeChecks: document.querySelectorAll(".facilityType"),
 
@@ -68,6 +80,7 @@ let doctors = [];
 let facilities = [];
 let facilitiesLoaded = false;
 let currentPopulationData = [];
+let currentUnemploymentData = [];
 let routeLayer = null;
 let districtLayer = null;
 
@@ -89,6 +102,21 @@ async function fillPopulationStichtageSelect() {
     option.value = datum;
     option.textContent = formatDateForDisplay(datum);
     els.popStichtag.appendChild(option);
+  });
+}
+
+
+
+async function fillUnemploymentStichtageSelect() {
+  const stichtage = await loadUnemploymentStichtage();
+
+  els.unemploymentStichtag.innerHTML = '<option value="">Datum auswählen</option>';
+
+  stichtage.forEach((datum) => {
+    const option = document.createElement("option");
+    option.value = datum;
+    option.textContent = formatDateForDisplay(datum);
+    els.unemploymentStichtag.appendChild(option);
   });
 }
 
@@ -163,6 +191,8 @@ async function resolveToPoint(inputText) {
   };
 }
 
+
+//Route
 async function drawRouteOSRM(start, end) {
   const url =
     `${OSRM_URL}/route/v1/driving/` +
@@ -205,7 +235,7 @@ function formatDateForDisplay(isoDate) {
 }
 
 /* ==============================
-   Filter
+   Suchfeld
 ============================== */
 function getVisibleDoctors() {
   const q = normalize(els.suchfeld.value);
@@ -261,8 +291,8 @@ function resetPopulationFilter() {
     els.popStichtag.value = "";
   }
 
-  if (els.statusAuswahl) {
-    els.statusAuswahl.classList.add("hidden");
+  if (els.statusAuswahlBevoelkerung) {
+    els.statusAuswahlBevoelkerung.classList.add("hidden");
   }
 
   els.bevoelkerungStatusRadios.forEach((radio) => {
@@ -277,10 +307,31 @@ function resetPopulationFilter() {
   resetDistrictLayerStyle(districtLayer);
 }
 
+function resetUnemploymentFilter() {
+  if (els.unemploymentStichtag) {
+    els.unemploymentStichtag.value = "";
+  }
+
+  if (els.statusAuswahlUnemployment) {
+    els.statusAuswahlUnemployment.classList.add("hidden");
+  }
+
+  els.unemploymentStatusRadios.forEach((radio) => {
+    radio.checked = false;
+  });
+
+  if (els.unemploymentPanel) {
+    els.unemploymentPanel.open = false;
+  }
+
+  currentUnemploymentData = [];
+  resetDistrictLayerStyle(districtLayer);
+}
+
 els.resetPopulationBtn?.addEventListener("click", () => {
   resetPopulationFilter();
+  resetUnemploymentFilter();
 });
-
 
 /* ==============================
    Render
@@ -443,7 +494,7 @@ async function syncDataFromSelection() {
 els.popStichtag?.addEventListener("change", async function () {
   try {
     if (this.value !== "") {
-      els.statusAuswahl?.classList.remove("hidden");
+      els.statusAuswahlBevoelkerung?.classList.remove("hidden");
       currentPopulationData = await loadPopulationByDate(this.value);
 
       const status = getSelectedBevoelkerungStatus();
@@ -452,7 +503,7 @@ els.popStichtag?.addEventListener("change", async function () {
         updateDistrictPopulationLayer(districtLayer, populationMap, status);
       }
     } else {
-      els.statusAuswahl?.classList.add("hidden");
+      els.statusAuswahlBevoelkerung?.classList.add("hidden");
       currentPopulationData = [];
 
       els.bevoelkerungStatusRadios.forEach((radio) => {
@@ -476,6 +527,47 @@ els.bevoelkerungStatusRadios.forEach((radio) => {
     updateDistrictPopulationLayer(districtLayer, populationMap, status);
   });
 });
+
+
+
+els.unemploymentStichtag?.addEventListener("change", async function () {
+  try {
+    if (this.value !== "") {
+      els.statusAuswahlUnemployment?.classList.remove("hidden");
+      currentUnemploymentData = await loadUnemploymentByDate(this.value);
+
+      const status = getSelectedUnemploymentStatus();
+      if (status) {
+        const unemploymentMap = buildUnemploymentMap(currentUnemploymentData, status);
+        updateDistrictUnemploymentLayer(districtLayer, unemploymentMap, status);
+      }
+    } else {
+      els.statusAuswahlUnemployment?.classList.add("hidden");
+      currentUnemploymentData = [];
+
+      els.unemploymentStatusRadios.forEach((radio) => {
+        radio.checked = false;
+      });
+
+      resetDistrictLayerStyle(districtLayer);
+    }
+  } catch (e) {
+    console.error(e);
+    setError(els, "Arbeitslosen-Daten konnten nicht geladen werden.");
+  }
+});
+
+els.unemploymentStatusRadios.forEach((radio) => {
+  radio.addEventListener("change", function () {
+    const status = getSelectedUnemploymentStatus();
+    if (!status || currentUnemploymentData.length === 0) return;
+
+    const unemploymentMap = buildUnemploymentMap(currentUnemploymentData, status);
+    updateDistrictUnemploymentLayer(districtLayer, unemploymentMap, status);
+  });
+});
+
+
 
 els.suchfeld.addEventListener("input", render);
 els.checkBarriere.addEventListener("change", render);
@@ -511,6 +603,11 @@ els.routeClearBtn?.addEventListener("click", () => {
   clearRoute();
 });
 
+
+
+
+
+
 /* ==============================
    Init
 ============================== */
@@ -523,6 +620,12 @@ async function init() {
     console.error(e);
     setError(els, "Stichtage konnten nicht geladen werden.");
   }
+  try {
+  await fillUnemploymentStichtageSelect();
+} catch (e) {
+  console.error(e);
+  setError(els, "Arbeitslosen-Stichtage konnten nicht geladen werden.");
+}
 
   render();
 }

@@ -107,14 +107,43 @@ export function formatPopulationNumber(value) {
  */
 export function getPopulationStatusLabel(status) {
   switch (status) {
-    case "alle":
-      return "alle";
+    case "gesamt":
+      return "gesamt";
     case "deutsch":
       return "deutsch";
     case "deutschMit2Sta":
       return "deutsch mit 2. Staatsbürgerschaft";
     case "nichtdeutsch":
       return "nicht deutsch";
+    default:
+      return "unbekannt";
+  }
+}
+
+
+
+export function formatPercent(value) {
+  if (value == null || Number.isNaN(value)) return "keine Daten";
+  return `${Number(value).toLocaleString("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} %`;
+}
+
+export function getUnemploymentStatusLabel(status) {
+  switch (status) {
+    case "arbeitslosenanteil":
+      return "Arbeitslosenanteil gesamt";
+    case "arbeitslosenanteilMaennlich":
+      return "Arbeitslosenanteil männlich";
+    case "arbeitslosenanteilWeiblich":
+      return "Arbeitslosenanteil weiblich";
+    case "arbeitslosenanteilDeutsch":
+      return "Arbeitslosenanteil deutsch";
+    case "arbeitslosenanteilNichtdeutsch":
+      return "Arbeitslosenanteil nichtdeutsch";
+    case "jugendarbeitslosigkeitU25":
+      return "Jugendarbeitslosigkeit unter 25";
     default:
       return "unbekannt";
   }

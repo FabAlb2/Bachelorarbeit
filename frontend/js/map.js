@@ -2,12 +2,20 @@ import {
   normalizeDistrictName,
   formatPopulationNumber,
   getPopulationStatusLabel,
+  formatPercent,
+  getUnemploymentStatusLabel,
 } from "./utils.js";
 
 import {
   getPopulationBreaks,
   getPopulationColor,
 } from "./population.js";
+
+import {
+  getUnemploymentBreaks,
+  getUnemploymentColor,
+} from "./unemployment.js";
+
 
 /* ==============================
    Kartenlogik
@@ -138,6 +146,37 @@ export function updateDistrictPopulationLayer(districtLayer, populationMap, stat
       <b>${stadtteilName ?? "Unbekannt"}</b><br>
       Kategorie: ${getPopulationStatusLabel(status)}<br>
       Anzahl: ${formatPopulationNumber(value)}
+    `);
+  });
+}
+
+
+export function updateDistrictUnemploymentLayer(districtLayer, unemploymentMap, status) {
+  if (!districtLayer) return;
+
+  const values = Array.from(unemploymentMap.values()).filter(
+    (v) => typeof v === "number" && !Number.isNaN(v)
+  );
+  const breaks = getUnemploymentBreaks(values, 7);
+
+  districtLayer.eachLayer((layer) => {
+    const feature = layer.feature;
+    const stadtteilName = feature?.properties?.stadtteil_name;
+
+    const key = normalizeDistrictName(stadtteilName);
+    const value = unemploymentMap.get(key);
+
+    layer.setStyle({
+      color: "#7f2704",
+      weight: 2,
+      fillOpacity: 0.8,
+      fillColor: getUnemploymentColor(value, breaks),
+    });
+
+    layer.bindPopup(`
+      <b>${stadtteilName ?? "Unbekannt"}</b><br>
+      Kategorie: ${getUnemploymentStatusLabel(status)}<br>
+      Quote: ${formatPercent(value)}
     `);
   });
 }

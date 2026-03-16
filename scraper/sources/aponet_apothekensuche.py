@@ -81,7 +81,7 @@ def _is_in_gelsenkirchen(city: str, postal: str) -> bool:
 # TOKEN BESCHAFFUNG
 # ==============================
 def fetch_token(session: requests.Session) -> str:
-    # 1) ENV-Fallback (bei dir aktuell der sichere Weg)
+    # 1) ENV-Fallback 
     if TOKEN_FROM_ENV:
         print(f"[aponet] Verwende APONET_TOKEN aus ENV: {TOKEN_FROM_ENV[:12]}...")
         # Seite optional laden (Cookies/Session)

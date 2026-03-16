@@ -24,18 +24,14 @@
 
     <section class="controls">
 
-      <div class="filter-section">
+    <div class="filter-section">
       <input id="suchfeld" class="search-input" placeholder="Nach Einrichtung suchen..." />
 
       <div class="checkbox">
-       <label>
-         <input type="checkbox" id="checkBarriere"/>
-         Nur Barrierefrei
-        </label>
+       <label><input type="checkbox" id="checkBarriere"/>Nur Barrierefrei</label>
       </div>
 
-
-  <!-- NEU: Facility-Typen -->
+  <!-- Facility-Typen -->
       <div class="checkbox" id="facilityTypes">
         <label><input type="checkbox" id="checkDoctors"/> Ärzte</label>
         <label><input type="checkbox" class="facilityType" value="KRANKENHAUS"> Krankenhaus</label>
@@ -46,10 +42,11 @@
       </div>
 
 
+      <!-- Auswahlfeld Staatsangehörigkeit -->
       <div class="population-bar">
-  <div class="panel-wrap">
-    <details class="panel" id="popPanel">
-      <summary class="panel-summary">Staatsangehörigkeit</summary>
+        <div class="panel-wrap">
+          <details class="panel" id="popPanel">
+          <summary class="panel-summary">Staatsangehörigkeit</summary>
 
             <div class="panel-popup">
               <div class="panel-body">
@@ -60,7 +57,7 @@
                   </select>
                 </div>
 
-                <div class="field hidden" id="statusAuswahl">
+                <div class="field hidden" id="statusAuswahlBevoelkerung">
                   <span>Staatsangehörigkeit:</span>
 
                   <label><input type="radio" name="bevoelkerungStatus" value="deutsch"> Deutsch</label>
@@ -72,13 +69,43 @@
             </div>
           </details>
         </div>
-        <button id="resetPopulationBtn" type="button" class="reset-btn">Filter löschen</button>
+
+
+        <!-- Auswahlfeld Arbeitslosenquote -->
+        <div class="panel-wrap">
+          <details class="panel" id="unemploymentPanel">
+          <summary class="panel-summary">Arbeitslosenquote</summary>
+
+            <div class="panel-popup">
+              <div class="panel-body">
+                <div class="field">
+                  <label for="unemploymentStichtag">Stichtag:</label>
+                  <select id="unemploymentStichtag">
+                    <option value="">Datum auswählen</option>
+                  </select>
+                </div>
+
+                <div class="field hidden" id="statusAuswahlUnemployment">
+                  <span>Arbeitslosigkeit:</span>
+
+                  <label><input type="radio" name="unemploymentStatus" value="arbeitslosenanteil"> Gesamt</label>
+                  <label><input type="radio" name="unemploymentStatus" value="arbeitslosenanteilMaennlich"> Männlich</label>
+                  <label><input type="radio" name="unemploymentStatus" value="arbeitslosenanteilWeiblich"> Weiblich</label>
+                  <label><input type="radio" name="unemploymentStatus" value="arbeitslosenanteilDeutsch"> Deutsch</label>
+                  <label><input type="radio" name="unemploymentStatus" value="arbeitslosenanteilNichtdeutsch"> Nicht deutsch</label>
+                  <label><input type="radio" name="unemploymentStatus" value="jugendarbeitslosigkeitU25"> Unter 25 Jahre</label>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+        <button id="resetPopulationBtn" type="button" class="reset-btn">Füllung der Stadtteile zurücksetzen</button>
       </div>
       
 
       <div class="route-controls">
-        <input id="routeStart" class="search-input" placeholder="Start (Adresse oder 'Mein Standort')" />
-        <input id="routeEnd" class="search-input" placeholder="Ziel (Adresse oder Einrichtung/Arzt)" />
+        <input id="routeStart" class="search-input" placeholder="Start (Adresse oder 'Mein Standort' eingeben)" />
+        <input id="routeEnd" class="search-input" placeholder="Ziel (Adresse/Einrichtung/Arzt oder 'Mein Standort' eingeben)" />
         <button id="routeBtn" type="button">Route berechnen</button>
         <button id="routeClearBtn" type="button">Route löschen</button>
         <label for="routeMode">Verkehrsmittel:</label>
